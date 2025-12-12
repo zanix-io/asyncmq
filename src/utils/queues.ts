@@ -9,7 +9,7 @@ import {
 } from '@zanix/server'
 
 import { MESSAGE_HEADERS, QUEUES_METADATA_KEY } from './constants.ts'
-import { decodeMessage } from './messages.ts'
+import { decode } from './messages.ts'
 import logger from '@zanix/logger'
 
 export async function storageQueueOptions<T>(
@@ -66,9 +66,10 @@ export const processorHandler = (
   return async (msg: ConsumeMessage | null) => {
     if (!msg) return
     const headers = msg.properties?.headers || {}
-    const context = JSON.parse(headers[MESSAGE_HEADERS.context])
-
-    const messageContent = await decodeMessage(msg.content, secret)
+    const [context, messageContent] = await Promise.all([
+      decode(headers[MESSAGE_HEADERS.context], secret),
+      decode(msg.content, secret),
+    ])
 
     // Define request context
     context.payload.body = messageContent

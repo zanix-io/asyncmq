@@ -3,7 +3,7 @@ import type { ZanixRabbitMQConnector } from './connector.ts'
 import type { Channel, Options } from 'amqp'
 
 import { getStoragedQueueOptions, processorHandler, storageQueueOptions } from 'utils/queues.ts'
-import { decodeMessage, encodeMessage, prepareOptions } from 'utils/messages.ts'
+import { decode, encode, prepareOptions } from 'utils/messages.ts'
 import { type QueueMessageOptions, ZanixAsyncMQProvider } from '@zanix/server'
 import { readConfig } from '@zanix/helpers'
 import {
@@ -183,9 +183,9 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     { isInternal, ...options }: QueueMessageOptions & { isInternal?: boolean },
   ): Promise<boolean> {
     await this.#isConfigured
-    const opts = prepareOptions(options, this.getContext)
+    const opts = await prepareOptions(options, this.#secret, this.getContext)
     const queuePath = isInternal ? this.#queuePath(queue) : queue
-    const secureMessage = await encodeMessage(message, this.#secret)
+    const secureMessage = await encode(message, this.#secret)
     return this.#channel.sendToQueue(queuePath, secureMessage, opts)
   }
 
@@ -209,8 +209,8 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     options: QueueMessageOptions,
   ): Promise<boolean> {
     await this.#isConfigured
-    const opts = prepareOptions(options, this.getContext)
-    const secureMessage = await encodeMessage(message, this.#secret)
+    const opts = await prepareOptions(options, this.#secret, this.getContext)
+    const secureMessage = await encode(message, this.#secret)
     return this.#channel.publish(GLOBAL_EXCHANGE, topic, secureMessage, opts)
   }
 
@@ -239,7 +239,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
 
     return Promise.all(messages.map((message) => {
       this.#channel.sendToQueue(queuePath, message.content, message.properties)
-      return decodeMessage(message.content, this.#secret)
+      return decode(message.content, this.#secret)
     }))
   }
 }

@@ -5,8 +5,9 @@ import { MESSAGE_HEADERS, QUEUE_PRIORITY } from './constants.ts'
 import { decrypt, encrypt, generateUUID } from '@zanix/helpers'
 import { Buffer } from 'node:buffer'
 
-export const prepareOptions = (
+export const prepareOptions = async (
   options: QueueMessageOptions,
+  secret: string,
   getContext: (id: string) => ScopedContext,
 ) => {
   const { retryConfig: { maxRetries, backoffOptions } = {}, priority, contextId, ...baseOpts } =
@@ -15,6 +16,7 @@ export const prepareOptions = (
 
   const scopedContext = contextId ? getContext(contextId) : undefined
   const context: Omit<HandlerContext, 'req' | 'url'> = {
+    ...scopedContext,
     id: scopedContext?.id || generateUUID(),
     cookies: scopedContext?.cookies || {},
     locals: scopedContext?.locals || {},
@@ -24,7 +26,7 @@ export const prepareOptions = (
   // Headers
   opts.headers = {
     ...options.headers,
-    [MESSAGE_HEADERS.context]: JSON.stringify(context),
+    [MESSAGE_HEADERS.context]: await encode(context, secret),
     [MESSAGE_HEADERS.maxRetries]: maxRetries,
     [MESSAGE_HEADERS.backoffOptions]: backoffOptions,
   }
@@ -38,8 +40,8 @@ export const prepareOptions = (
   return opts
 }
 
-export const encodeMessage = async (message: string | Record<string, unknown>, secret: string) =>
+export const encode = async (message: string | Record<string, unknown>, secret: string) =>
   Buffer.from(await encrypt(JSON.stringify(message), secret))
 
-export const decodeMessage = async (message: Buffer<ArrayBufferLike>, secret: string) =>
+export const decode = async (message: Buffer<ArrayBufferLike>, secret: string) =>
   JSON.parse(await decrypt(message.toString(), secret))

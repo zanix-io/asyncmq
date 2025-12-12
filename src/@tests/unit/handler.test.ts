@@ -4,7 +4,7 @@
 import { assertEquals } from '@std/assert'
 import { processorHandler } from 'utils/queues.ts'
 import { MESSAGE_HEADERS } from 'utils/constants.ts'
-import { encodeMessage } from 'utils/messages.ts'
+import { encode } from 'utils/messages.ts'
 
 // --- Mock Channel ---
 const createMockChannel: any = () => {
@@ -43,7 +43,7 @@ class MockQueue {
 
 // --- Helper: create a message object ---
 const createMsg = async (body: any, headers: Record<string, any> = {}) => ({
-  content: await encodeMessage(body, 'secret'),
+  content: await encode(body, 'secret'),
   properties: { headers },
 })
 
@@ -67,7 +67,7 @@ Deno.test('processorHandler: processes message successfully and ACKs', async () 
   const msg = await createMsg(
     { hello: 'world' },
     {
-      [MESSAGE_HEADERS.context]: JSON.stringify(context),
+      [MESSAGE_HEADERS.context]: await encode(context, 'secret'),
       'x-attempt': 0,
     },
   )
@@ -107,7 +107,7 @@ Deno.test(
     const msg = await createMsg(
       { hello: 'world' },
       {
-        [MESSAGE_HEADERS.context]: JSON.stringify({ id: 'ctx', locals: {}, payload: {} }),
+        [MESSAGE_HEADERS.context]: await encode({ id: 'ctx', locals: {}, payload: {} }, 'secret'),
         [MESSAGE_HEADERS.maxRetries]: 3,
         'x-attempt': 0,
       },
@@ -145,7 +145,7 @@ Deno.test('processorHandler: NACKs when attempt >= maxRetries', async () => {
   const msg = await createMsg(
     { foo: 'bar' },
     {
-      [MESSAGE_HEADERS.context]: JSON.stringify({ id: 'ctx2', payload: {}, locals: {} }),
+      [MESSAGE_HEADERS.context]: await encode({ id: 'ctx2', payload: {}, locals: {} }, 'secret'),
       [MESSAGE_HEADERS.maxRetries]: 1,
       'x-attempt': 1,
     },
@@ -183,7 +183,7 @@ Deno.test('processorHandler: uses custom backoffStrategy from retryConfig', asyn
   )
 
   const msg = await createMsg({ hi: 'there' }, {
-    [MESSAGE_HEADERS.context]: JSON.stringify({ id: 'ctx3', payload: {}, locals: {} }),
+    [MESSAGE_HEADERS.context]: await encode({ id: 'ctx3', payload: {}, locals: {} }, 'secret'),
     'x-attempt': 0,
   })
 
@@ -218,7 +218,7 @@ Deno.test(
     }
 
     const msg = await createMsg({ test: 1 }, {
-      [MESSAGE_HEADERS.context]: JSON.stringify({ id: 'ctx4', payload: {}, locals: {} }),
+      [MESSAGE_HEADERS.context]: await encode({ id: 'ctx4', payload: {}, locals: {} }, 'secret'),
       'x-attempt': 0,
     })
 

@@ -2,7 +2,11 @@
 
 name: Publish
 
-on:
+on:  
+  # Run on push or PRs to master
+  pull_request:
+    branches:
+      - master
   push:
     branches:
       - master
@@ -14,6 +18,18 @@ jobs:
       contents: read # Allows reading of the repository's contents.
       id-token: write # Allows the creation of an ID token for authentication with JSR.
 
+    services:
+      rabbitmq:
+        image: rabbitmq:3-management
+        ports:
+          - 5672:5672   # AMQP port
+          - 15672:15672 # dashboard management 
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,6 +39,18 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Wait for RabbitMQ
+        run: |
+          echo "Waiting RabbitMQ..."
+          for i in {1..10}; do
+            if nc -z localhost 5672; then
+              echo "RabbitMQ is ready"
+              break
+            fi
+            echo "RabbitMQ not ready..."
+            sleep 3
+          done
+        
       - name: Run tests
         run: deno test --allow-all
 

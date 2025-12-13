@@ -14,7 +14,7 @@ console.warn = () => {}
 const registerProvider = async () => {
   Deno.env.set('AMQP_URI', 'amqp://guest:guest@localhost:5672/')
 
-  import('jsr:@zanix/datamaster@0.x/core')
+  await import('jsr:@zanix/datamaster@0.x/core')
   await import('../../modules/rabbitmq/defs.ts')
   return new ZanixCoreAsyncMQProvider()
 }

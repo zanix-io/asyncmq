@@ -70,6 +70,7 @@ Responsible for:
 - Routing messages to the correct queue processor
 - Managing retries and failures
 - Publishing messages to specific queues or topics
+- Schedule messages and execute cron jobs
 - Integrating seamlessly with Zanix Providers
 
 ---

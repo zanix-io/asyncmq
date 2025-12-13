@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { assert, assertEquals } from '@std/assert'
-import { decode, prepareOptions } from 'utils/messages.ts'
+import { decode, prepareOptions } from 'modules/rabbitmq/provider/messages.ts'
 import { MESSAGE_HEADERS } from 'utils/constants.ts'
 import { isUUID } from '@zanix/validator'
 

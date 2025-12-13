@@ -1,17 +1,29 @@
 import type { SubscriberMetadata } from 'typings/queues.ts'
-import type { ZanixRabbitMQConnector } from './connector.ts'
-import type { Channel, Options } from 'amqp'
+import type { ZanixRabbitMQConnector } from '../connector.ts'
+import type { CronRegistry } from 'typings/crons.ts'
+import type { Channel } from 'amqp'
 
-import { getStoragedQueueOptions, processorHandler, storageQueueOptions } from 'utils/queues.ts'
-import { decode, encode, prepareOptions } from 'utils/messages.ts'
-import { type QueueMessageOptions, ZanixAsyncMQProvider } from '@zanix/server'
-import { readConfig } from '@zanix/helpers'
+import { type QueueMessageOptions, type ScheduleOptions, ZanixAsyncMQProvider } from '@zanix/server'
 import {
-  DEADLETTER_EXCHANGE,
+  CRONS_METADATA_KEY,
   GLOBAL_EXCHANGE,
-  QUEUE_PRIORITY,
+  MESSAGE_HEADERS,
   QUEUES_METADATA_KEY,
+  SCHEDULER_EXCHANGE,
 } from 'utils/constants.ts'
+import {
+  cronqPath,
+  deadletterOpts,
+  dlqPath,
+  qPath,
+  schedulerOpts,
+  schqPath,
+  setup,
+} from './setup.ts'
+import { decode, encode, prepareOptions } from './messages.ts'
+import { ApplicationError } from '@zanix/errors'
+import { generateUUID } from '@zanix/helpers'
+import { nextCronDate } from 'utils/cron.ts'
 
 /**
  * ZanixAsyncMQProvider is a provider class responsible for managing
@@ -30,26 +42,24 @@ import {
  * @extends ZanixAsyncMQProvider
  */
 export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
-  public connector: ZanixRabbitMQConnector
+  #connector: ZanixRabbitMQConnector
   #isConfigured: Promise<boolean>
   #channel!: Channel
-  #project: string
   #secret: string
 
   constructor(contextId?: string) {
     super(contextId)
-    this.#project = readConfig().name || ''
     this.#secret = Deno.env.get('DATA_AMQP_SECRET') || 'zanix_default_secret'
-    this.connector = this.connectors.get<ZanixRabbitMQConnector>('asyncmq')
-    this.#isConfigured = this.#setup()
+    this.#connector = this.use<ZanixRabbitMQConnector>(false)
+    this.#isConfigured = new Promise((resolve) =>
+      queueMicrotask(() =>
+        this.#setup().then(() => {
+          resolve(true)
+        })
+      )
+    )
+    queueMicrotask(() => this.#executeCrons())
   }
-
-  #deadletterOpts = {
-    messageTtl: 30 * 24 * 60 * 60 * 1000, // expire in 30 days
-    durable: true,
-  }
-  #dlq = (queue: string) => `${queue}.dlq`
-  #queuePath = (queue: string) => `${this.#project}.${queue}`
 
   /**
    * Initializes the messaging environment by configuring the RabbitMQ connector,
@@ -66,101 +76,55 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    * This method must complete before message publishing or consuming can occur.
    */
   async #setup() {
-    this.#channel = await this.connector.createChannel()
+    this.#channel = await this.#connector.createChannel()
 
     const queues = this.registry.get<SubscriberMetadata[]>(QUEUES_METADATA_KEY)
 
-    if (!queues) {
-      this.kvLocal.delete(QUEUES_METADATA_KEY)
-      return false
-    }
-
-    const storagedQueues = await getStoragedQueueOptions<Record<string, string>>(
-      this.cache,
-      this.kvLocal,
-    )
-    const queueOptions: typeof storagedQueues = {}
-
-    // Create global exchanges
-    await this.#channel.assertExchange(GLOBAL_EXCHANGE, 'topic', { durable: true })
-    await this.#channel.assertExchange(DEADLETTER_EXCHANGE, 'direct', { durable: true })
-
-    const queuesPaths: string[] = []
-
-    // Prepare Queues
-    for await (const [queue, options, Queue] of queues) {
-      queuesPaths.push(queue)
-      const { includeInGlobalExchange, retryConfig, maxPriority, ...baseOpts } = options
-      const opts: Options.AssertQueue = baseOpts
-      const fullQueuePath = this.#queuePath(queue)
-
-      // Defaults
-      opts.durable = opts.durable ?? true
-      opts.deadLetterExchange = DEADLETTER_EXCHANGE
-      opts.deadLetterRoutingKey = fullQueuePath
-
-      // Priority
-      if (maxPriority) opts.maxPriority = QUEUE_PRIORITY[maxPriority]
-
-      const storagedOptions = storagedQueues[queue]
-      const currentOpts = JSON.stringify(opts)
-      queueOptions[queue] = currentOpts
-
-      // Re create queue if has changed, or assert it
-      if (storagedOptions && storagedOptions !== currentOpts) {
-        const oldOptions = JSON.parse(storagedOptions)
-        const messages = await this.connector.consumeAllMessages(
-          this.#channel,
-          fullQueuePath,
-          oldOptions,
-        )
-
-        await this.#channel.deleteQueue(fullQueuePath, oldOptions)
-        await this.#channel.assertQueue(fullQueuePath, opts)
-        for (const message of messages) {
-          this.#channel.sendToQueue(fullQueuePath, message.content, message.properties)
-        }
-      } else {
-        await this.#channel.assertQueue(fullQueuePath, opts)
-      }
-
-      if (includeInGlobalExchange) {
-        await this.#channel.bindQueue(fullQueuePath, GLOBAL_EXCHANGE, queue)
-      } else {
-        await this.#channel.unbindQueue(fullQueuePath, GLOBAL_EXCHANGE, queue)
-      }
-
-      // Bind deadletter
-      const dlq = this.#dlq(fullQueuePath)
-      await this.#channel.assertQueue(dlq, this.#deadletterOpts)
-      await this.#channel.bindQueue(dlq, DEADLETTER_EXCHANGE, fullQueuePath)
-
-      // Prepare processor
-      await this.#channel.consume(
-        fullQueuePath,
-        processorHandler(Queue, this.#channel, {
-          queue: fullQueuePath,
-          secret: this.#secret,
-          retries: retryConfig,
-        }),
-      )
-    }
-
-    // Delete orphans
-    const queuesToDelete = Object.entries(storagedQueues).filter((key) =>
-      !queuesPaths.includes(key[0])
-    )
-    for await (const [queue, options] of queuesToDelete) {
-      const fullQueuePath = this.#queuePath(queue)
-      await this.#channel.deleteQueue(fullQueuePath, JSON.parse(options))
-      await this.#channel.deleteQueue(this.#dlq(fullQueuePath), JSON.parse(options))
-    }
-
-    await storageQueueOptions(queueOptions, this.cache, this.kvLocal)
+    await setup({
+      connector: this.#connector,
+      cache: this.cache,
+      kvLocal: this.kvLocal,
+      channel: this.#channel,
+      tmpChannel: await this.#connector.createChannel(),
+      secret: this.#secret,
+      queues,
+    })
 
     this.registry.delete(QUEUES_METADATA_KEY)
 
     return true
+  }
+
+  /**
+   * Execute crons
+   */
+  async #executeCrons() {
+    const crons = this.registry.get<CronRegistry[]>(CRONS_METADATA_KEY)
+    if (crons) {
+      await this.#isConfigured
+      const cronExecutionPromises = crons.map(async ([cron, options]) => {
+        const { queue, args, settings, schedule, isActive } = options
+        const fullQueuePath = qPath(queue)
+        const cronQueue = cronqPath(fullQueuePath)
+        const schedulerQueue = schqPath(cronQueue)
+        // consume messages to re write it
+        await this.#connector.consumeAllMessages(schedulerQueue, {
+          ...schedulerOpts,
+          deadLetterRoutingKey: fullQueuePath,
+        })
+        if (!isActive) return
+        await this.schedule(cronQueue, args, {
+          contextId: generateUUID(),
+          ...settings,
+          date: nextCronDate(schedule),
+          messageId: cron,
+          headers: { [MESSAGE_HEADERS.cronIdentifier]: cron },
+        })
+      })
+      await Promise.all(cronExecutionPromises)
+
+      this.registry.delete(CRONS_METADATA_KEY)
+    }
   }
 
   /**
@@ -180,11 +144,11 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   public async enqueue(
     queue: string,
     message: string | Record<string, unknown>,
-    { isInternal, ...options }: QueueMessageOptions & { isInternal?: boolean },
+    { isInternal, ...options }: QueueMessageOptions,
   ): Promise<boolean> {
     await this.#isConfigured
     const opts = await prepareOptions(options, this.#secret, this.getContext)
-    const queuePath = isInternal ? this.#queuePath(queue) : queue
+    const queuePath = isInternal ? qPath(queue) : queue
     const secureMessage = await encode(message, this.#secret)
     return this.#channel.sendToQueue(queuePath, secureMessage, opts)
   }
@@ -206,10 +170,14 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   public override async sendMessage(
     topic: string,
     message: string | Record<string, unknown>,
-    options: QueueMessageOptions,
+    { isInternal, ...options }: QueueMessageOptions,
   ): Promise<boolean> {
     await this.#isConfigured
     const opts = await prepareOptions(options, this.#secret, this.getContext)
+    // const topicRoute = isInternal? project+'*'+topic: topic
+    if (topic[0] === '*') topic = '__all__' + topic.slice(1)
+    else if (isInternal) topic = qPath(topic)
+
     const secureMessage = await encode(message, this.#secret)
     return this.#channel.publish(GLOBAL_EXCHANGE, topic, secureMessage, opts)
   }
@@ -230,16 +198,71 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   // deno-lint-ignore no-explicit-any
   public override async requeueDeadLetters(queue: string): Promise<any[]> {
     await this.#isConfigured
-    const queuePath = this.#queuePath(queue)
-    const messages = await this.connector.consumeAllMessages(
-      this.#channel,
-      this.#dlq(queuePath),
-      this.#deadletterOpts,
+    const queuePath = qPath(queue)
+    const messages = await this.#connector.consumeAllMessages(
+      dlqPath(queuePath),
+      deadletterOpts,
     )
 
     return Promise.all(messages.map((message) => {
+      message.properties.headers = {
+        ...message.properties.headers,
+        [MESSAGE_HEADERS.rqFromDL]: true,
+      }
       this.#channel.sendToQueue(queuePath, message.content, message.properties)
       return decode(message.content, this.#secret)
     }))
+  }
+
+  /**
+   * Schedules a message to be published to a queue at a future time.
+   *
+   * The message can be scheduled either by specifying an absolute date or a delay
+   * (in milliseconds). When `isInternal` is set, the queue name is resolved through
+   * the internal queue path mechanism.
+   *
+   * @async
+   * @param {string} queue - The name of the queue where the message will be published.
+   * @param {string | Record<string, unknown>} message - The message payload to send.
+   *   It will be securely encoded before publication.
+   * @param {Omit<QueueMessageOptions, 'expiration'> & Object} options - Configuration options
+   *   for scheduling and message publishing.
+   * @param {Date} [options.date] - The absolute date at which the message should be delivered.
+   *   If provided, it overrides `delay`.
+   * @param {number} [options.delay=0] - Delay in milliseconds before the message is delivered.
+   *   Used when `date` is not provided.
+   *
+   * @returns {Promise<boolean>} Resolves to `true` if the message was successfully scheduled.
+   */
+  public override async schedule(
+    queue: string,
+    message: string | Record<string, unknown>,
+    { isInternal, date, delay = 0, ...options }:
+      & Omit<QueueMessageOptions, 'expiration'>
+      & ScheduleOptions,
+  ): Promise<boolean> {
+    await this.#isConfigured
+    const opts = await prepareOptions(options, this.#secret, this.getContext)
+    const queuePath = isInternal ? qPath(queue) : queue
+    const secureMessage = await encode(message, this.#secret)
+    if (date) opts.expiration = delay + date.getTime() - Date.now()
+    else if (delay) opts.expiration = delay
+
+    if (typeof opts.expiration === 'number' && opts.expiration <= 0) {
+      throw new ApplicationError(
+        'Queue expiration schedule is invalid: the resulting time must be in the future.',
+        {
+          meta: {
+            source: 'zanix',
+            action: 'queue schedule',
+            date,
+            delay,
+            expiration: opts.expiration,
+          },
+        },
+      )
+    }
+
+    return this.#channel.publish(SCHEDULER_EXCHANGE, schqPath(queuePath), secureMessage, opts)
   }
 }

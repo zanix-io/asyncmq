@@ -10,62 +10,10 @@ import {
   type HandlerContext,
   ProgramModule,
   type ZanixClassDecorator,
-  type ZanixConnector,
 } from '@zanix/server'
 import { InternalError } from '@zanix/errors'
 import { ZanixQueue } from '../base.ts'
 import { QUEUES_METADATA_KEY } from 'utils/constants.ts'
-
-/** Connector module setup init mode */
-export const connectorModuleInitialization = (instance: ZanixConnector) => {
-  const timeout = instance['timeoutConnection']
-  const retryInterval = instance['retryInterval']
-
-  // Check for healthy
-  const waitForHealthWithTimeout = (): Promise<boolean> => {
-    const startTime = Date.now()
-
-    return new Promise((resolve, reject) => {
-      const checkHealth = async () => {
-        const healthy = await instance.isHealthy()
-
-        if (healthy) return resolve(true)
-
-        if (Date.now() - startTime > timeout) {
-          reject(
-            new InternalError('Health check failed: Timeout reached', {
-              meta: {
-                connectorName: instance.constructor.name,
-                method: 'isHealthy',
-                timeoutDuration: timeout,
-                retryInterval: retryInterval,
-                source: 'zanix',
-              },
-            }),
-          )
-        } else {
-          setTimeout(checkHealth, retryInterval)
-        }
-      }
-
-      checkHealth()
-    })
-  }
-
-  // Wait for healthy
-  return new Promise((resolve, reject) => {
-    instance.isReady
-      .then(async () => {
-        try {
-          const healthy = await waitForHealthWithTimeout()
-          resolve(healthy)
-        } catch (error) {
-          reject(error)
-        }
-      })
-      .catch(reject)
-  })
-}
 
 /** Define decorator to register a queue */
 export function defineQueueDecorator(

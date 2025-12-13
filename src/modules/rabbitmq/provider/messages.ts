@@ -1,7 +1,7 @@
 import type { HandlerContext, QueueMessageOptions, ScopedContext } from '@zanix/server'
 import type { Options } from 'amqp'
 
-import { MESSAGE_HEADERS, QUEUE_PRIORITY } from './constants.ts'
+import { MESSAGE_HEADERS, QUEUE_PRIORITY } from 'utils/constants.ts'
 import { decrypt, encrypt, generateUUID } from '@zanix/helpers'
 import { Buffer } from 'node:buffer'
 

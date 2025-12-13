@@ -1,10 +1,10 @@
 // deno-lint-ignore-file no-explicit-any
 // processorHandler.test.ts
 
-import { assertEquals } from '@std/assert'
-import { processorHandler } from 'utils/queues.ts'
+import { processorHandler } from 'modules/queues/handler.ts'
 import { MESSAGE_HEADERS } from 'utils/constants.ts'
-import { encode } from 'utils/messages.ts'
+import { assertEquals } from '@std/assert'
+import { encode } from 'modules/rabbitmq/provider/messages.ts'
 
 // --- Mock Channel ---
 const createMockChannel: any = () => {
@@ -184,7 +184,7 @@ Deno.test('processorHandler: uses custom backoffStrategy from retryConfig', asyn
 
   const msg = await createMsg({ hi: 'there' }, {
     [MESSAGE_HEADERS.context]: await encode({ id: 'ctx3', payload: {}, locals: {} }, 'secret'),
-    'x-attempt': 0,
+    'x-attempt': 1,
   })
 
   // Force failure
@@ -194,7 +194,7 @@ Deno.test('processorHandler: uses custom backoffStrategy from retryConfig', asyn
 
   await handler(msg as any)
 
-  assertEquals(delayUsed, 0 * 123)
+  assertEquals(delayUsed, 1 * 123)
   assertEquals(channel.sendCalls.length, 1)
 })
 

@@ -16,17 +16,77 @@ interface AssertQueue {
   maxLength?: number
 }
 
+/**
+ * Metadata provided when a message is successfully received and processed.
+ */
+export type OnMessageInfo = {
+  /**
+   * Number of delivery attempts for this message.
+   */
+  attempt: number
+
+  /**
+   * Name of the queue from which the message was consumed.
+   */
+  queue: string
+
+  /**
+   * Execution context associated with the message.
+   */
+  context: Record<string, unknown>
+
+  /**
+   * Unique identifier of the message.
+   */
+  messageId: string
+
+  /**
+   * Cron-related information if the message was scheduled.
+   */
+  cron?: {
+    /**
+     * Date of the next scheduled execution.
+     */
+    nextExecution: Date
+
+    /**
+     * Name of the cron job.
+     */
+    name: string
+
+    /**
+     * Cron expression used for scheduling.
+     */
+    expression: string
+  }
+
+  /**
+   * Indicates whether the message was requeued from a dead-letter queue.
+   */
+  requeuedFromDeadLetter?: boolean
+}
+
+/**
+ * Metadata provided when an error occurs while processing a message.
+ */
+export type OnErrorInfo = {
+  /**
+   * Indicates whether the message was requeued after the error.
+   */
+  requeued: boolean
+} & OnMessageInfo
+
 export interface IZanixQueue {
   onmessage: (
     // deno-lint-ignore no-explicit-any
     message: any,
-    info: { attempt: number; queue: string; context: Record<string, unknown> },
+    info: OnMessageInfo,
   ) => void | Promise<void>
   onerror: (
     // deno-lint-ignore no-explicit-any
     message: any,
     error: unknown,
-    info: { requeued: boolean; attempt: number; queue: string; context: Record<string, unknown> },
+    info: OnErrorInfo,
   ) => void | Promise<void>
 }
 
@@ -71,7 +131,7 @@ export type QueueOptions =
        *   - `exponentialTimeout` — Base timeout in milliseconds (default: `15000`)
        *   - `exponentialBackoffCoefficient` — Coefficient for backoff growth (default: `2`)
        */
-      backoffStrategy?: (attempt: number, options?: BackoffOptions) => number
+      backoffStrategy?: false | ((attempt: number, options?: BackoffOptions) => number)
     }
   }
 

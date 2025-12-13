@@ -1,4 +1,4 @@
-import type { IZanixQueue } from 'typings/queues.ts'
+import type { IZanixQueue, OnErrorInfo, OnMessageInfo } from 'typings/queues.ts'
 import type { BaseRTO } from '@zanix/validator'
 
 import logger from '@zanix/logger'
@@ -33,10 +33,10 @@ export abstract class ZanixQueue<Interactor extends ZanixInteractorGeneric = nev
       const rto = this['_znx_props_'].data.rto as undefined | (new (ctx?: unknown) => BaseRTO)
 
       return rto
-        ? this.requestValidation({ Body: rto }, context).then((payload) => {
-          return currentOnMessage(payload.body, info)
-        }).catch((error) => {
+        ? this.requestValidation({ Body: rto }, context).catch((error) => {
           throw new ApplicationError('Data validation Error', { cause: error.cause, id: error.id })
+        }).then((payload) => {
+          return currentOnMessage(payload.body, info)
         })
         : currentOnMessage(message, info)
     }
@@ -50,7 +50,7 @@ export abstract class ZanixQueue<Interactor extends ZanixInteractorGeneric = nev
   protected abstract onmessage(
     // deno-lint-ignore no-explicit-any
     message: any,
-    info: { attempt: number; queue: string; context: Record<string, unknown> },
+    info: OnMessageInfo,
   ): Promise<void> | void
 
   /**
@@ -58,10 +58,10 @@ export abstract class ZanixQueue<Interactor extends ZanixInteractorGeneric = nev
    * Should be overridden to handle errors with custom logic.
    */
   protected onerror(
-    // deno-lint-ignore no-explicit-any
-    _message: any,
+    // deno-lint-ignore no-explicit-any no-unused-vars
+    message: any,
     error: unknown,
-    info: { requeued: boolean; attempt: number; queue: string; context: Record<string, unknown> },
+    info: OnErrorInfo,
   ) {
     // deno-lint-ignore no-explicit-any
     ;(error as any).meta = {

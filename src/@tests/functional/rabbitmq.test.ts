@@ -47,7 +47,7 @@ Deno.test('RabbitMQ connector should consume all messages ', async () => {
 
   await new Promise((resolve) => setTimeout(resolve, 500)) // wait until set
 
-  const messages = await connector.consumeAllMessages(channel, queue)
+  const messages = await connector.consumeAllMessages(queue)
 
   assertEquals(messages[0].content.toString(), 'Hello from Deno 1')
   assertEquals(messages[1].content.toString(), 'Hello from Deno 2')

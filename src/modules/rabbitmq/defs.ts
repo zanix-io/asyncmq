@@ -7,9 +7,9 @@
  * \_____/ \__,_||_| |_||_|/_/\_\
  */
 
+import { ZanixCoreAsyncMQProvider } from './provider/mod.ts'
 import { ZanixRabbitMQConnector } from './connector.ts'
 import { Connector, Provider } from '@zanix/server'
-import { ZanixCoreAsyncMQProvider } from './provider.ts'
 
 /** Connector DSL definition */
 const registerConnector = () => {

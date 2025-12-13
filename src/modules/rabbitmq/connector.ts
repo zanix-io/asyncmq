@@ -52,19 +52,21 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
    * of calling. It acknowledges each message after consuming it. Note that
    * messages arriving after this method starts may not be included.
    *
-   * @param {Channel} channel - The AMQP channel used to consume messages.
    * @param {string} queue - The name of the queue to consume messages from.
-   * @param {Options.AssertQueue} options - Options to assert the queue (durable, exclusive, etc.).
+   * @param {Options.AssertQueue & {channel?: Channel}} options - Options to assert the queue (durable, exclusive, etc.).
    * @returns {Promise<ConsumeMessage[]>} A promise that resolves with an array containing
    *   the content of all consumed messages.
    */
   public async consumeAllMessages(
-    channel: Channel,
     queue: string,
-    options?: Options.AssertQueue,
+    options: Options.AssertQueue & {
+      channel?: Channel
+      filter?: (msg: ConsumeMessage) => boolean
+    } = {},
   ): Promise<ConsumeMessage[]> {
     await this.isReady
-    const { messageCount } = await channel.assertQueue(queue, options)
+    const { filter = () => true, channel = await this.createChannel(), ...opts } = options
+    const { messageCount } = await channel.assertQueue(queue, opts)
     const messages: ConsumeMessage[] = []
 
     if (messageCount === 0) return messages
@@ -73,11 +75,14 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
       let received = 0
       channel.consume(queue, (msg) => {
         if (!msg) return
-        messages.push(msg)
-        channel.ack(msg)
         received++
+        if (filter(msg)) {
+          messages.push(msg)
+          channel.ack(msg)
+        }
         if (received === messageCount) {
-          resolve(messages)
+          if (!options.channel) channel.close().finally(() => resolve(messages))
+          else resolve(messages)
         }
       })
     })

@@ -23,7 +23,7 @@ const registerConnector = () => {
     }
   }
 
-  @Provider('asyncmq')
+  @Provider({ type: 'asyncmq', startMode: 'postBoot' })
   class _ZanixAsyncMQProvider extends ZanixCoreAsyncMQProvider {
     constructor(contextId?: string) {
       super(contextId)

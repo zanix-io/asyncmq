@@ -9,7 +9,7 @@ export type CronJobDefinition = {
   /** Indicates whether the cron job is active or not. */
   isActive: boolean
   /** Arguments to pass to the cron job. It can be a string or an object with unknown keys and values. */
-  args: string | Record<string, unknown>
+  args?: string | Record<string, unknown>
   /** The name of the **internal** queue responsible for executing the cron job. */
   queue: string
   /**

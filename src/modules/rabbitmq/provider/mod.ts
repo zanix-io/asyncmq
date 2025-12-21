@@ -1,15 +1,20 @@
-import type { SubscriberMetadata } from 'typings/queues.ts'
+import type { Execution, SubscriberMetadata } from 'typings/queues.ts'
 import type { ZanixRabbitMQConnector } from '../connector.ts'
 import type { CronRegistry } from 'typings/crons.ts'
 import type { Channel } from 'amqp'
 
-import { type QueueMessageOptions, type ScheduleOptions, ZanixAsyncMQProvider } from '@zanix/server'
+import {
+  type MessageQueue,
+  type QueueMessageOptions,
+  type ScheduleOptions,
+  ZanixAsyncMQProvider,
+} from '@zanix/server'
 import {
   CRONS_METADATA_KEY,
   GLOBAL_EXCHANGE,
   MESSAGE_HEADERS,
-  QUEUES_METADATA_KEY,
   SCHEDULER_EXCHANGE,
+  SUBSCRIBERS_METADATA_KEY,
 } from 'utils/constants.ts'
 import {
   cronqPath,
@@ -43,14 +48,17 @@ import { nextCronDate } from 'utils/cron.ts'
  */
 export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   #connector: ZanixRabbitMQConnector
-  #isConfigured: Promise<boolean>
-  #channel!: Channel
+  #execution: Execution
+  #isConfigured!: Promise<boolean>
+  #notifierChannel!: Channel
   #secret: string
 
   constructor(contextId?: string) {
     super(contextId)
     this.#secret = Deno.env.get('DATA_AMQP_SECRET') || 'zanix_default_secret'
+    this.#execution = Deno.env.get('ZANIX_WORKER_EXECUTION') as Execution || 'main-process'
     this.#connector = this.use<ZanixRabbitMQConnector>(false)
+
     this.#isConfigured = new Promise((resolve) =>
       queueMicrotask(() =>
         this.#setup().then(() => {
@@ -76,21 +84,23 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    * This method must complete before message publishing or consuming can occur.
    */
   async #setup() {
-    this.#channel = await this.#connector.createChannel()
-
-    const queues = this.registry.get<SubscriberMetadata[]>(QUEUES_METADATA_KEY)
+    this.#notifierChannel = await this.#connector.createChannel()
+    const subsMetaKey = SUBSCRIBERS_METADATA_KEY[this.#execution]
+    const subscribers = this.registry.get<SubscriberMetadata[]>(
+      subsMetaKey,
+    )
 
     await setup({
+      execution: this.#execution,
       connector: this.#connector,
       cache: this.cache,
       kvLocal: this.kvLocal,
-      channel: this.#channel,
-      tmpChannel: await this.#connector.createChannel(),
       secret: this.#secret,
-      queues,
+      subscribers,
     })
 
-    this.registry.delete(QUEUES_METADATA_KEY)
+    // remove unused data
+    this.registry.delete(subsMetaKey)
 
     return true
   }
@@ -99,32 +109,34 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    * Execute crons
    */
   async #executeCrons() {
-    const crons = this.registry.get<CronRegistry[]>(CRONS_METADATA_KEY)
-    if (crons) {
-      await this.#isConfigured
-      const cronExecutionPromises = crons.map(async ([cron, options]) => {
-        const { queue, args, settings, schedule, isActive } = options
-        const fullQueuePath = qPath(queue)
-        const cronQueue = cronqPath(fullQueuePath)
-        const schedulerQueue = schqPath(cronQueue)
-        // consume messages to re write it
-        await this.#connector.consumeAllMessages(schedulerQueue, {
-          ...schedulerOpts,
-          deadLetterRoutingKey: fullQueuePath,
-        })
-        if (!isActive) return
-        await this.schedule(cronQueue, args || `cron message by "${cron}"`, {
-          contextId: generateUUID(),
-          ...settings,
-          date: nextCronDate(schedule),
-          messageId: cron,
-          headers: { [MESSAGE_HEADERS.cronIdentifier]: cron },
-        })
-      })
-      await Promise.all(cronExecutionPromises)
+    const crons = this.registry.get<CronRegistry[]>(CRONS_METADATA_KEY[this.#execution])
+    if (!crons) return
 
-      this.registry.delete(CRONS_METADATA_KEY)
-    }
+    await this.#isConfigured
+    const cronExecutionPromises = crons.map(async ([cron, options]) => {
+      const { queue, args, settings, schedule, isActive } = options
+      const fullQueuePath = qPath(queue)
+      const cronQueue = cronqPath(fullQueuePath)
+      const schedulerQueue = schqPath(cronQueue)
+      // Process the messages to rewrite them.
+      await this.#connector.consumeAllMessages(schedulerQueue, {
+        ...schedulerOpts,
+        deadLetterRoutingKey: fullQueuePath,
+      })
+      if (!isActive) return
+      await this.schedule(cronQueue, args || null, {
+        contextId: generateUUID(),
+        ...settings,
+        date: nextCronDate(schedule),
+        messageId: cron,
+        headers: { [MESSAGE_HEADERS.cronIdentifier]: cron },
+      })
+    })
+    await Promise.all(cronExecutionPromises)
+
+    // remove unused data
+    this.registry.delete(CRONS_METADATA_KEY['main-process'])
+    this.registry.delete(CRONS_METADATA_KEY['extra-process'])
   }
 
   /**
@@ -136,21 +148,21 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    * the queue using `sendToQueue`.
    *
    * @param {string} queue - The name of the target queue (logical name before path resolution).
-   * @param {string | Record<string, unknown>} message - The message payload to send.
+   * @param {Message} message - The message payload to send.
    *   Objects will be encoded via the internal encoding mechanism.
    * @param {MessageOptions} [options] - Optional AMQP publish options (e.g., persistent, priority).
    * @returns {Promise<boolean>} A promise that resolves to the result of `sendToQueue`.
    */
   public async enqueue(
     queue: string,
-    message: string | Record<string, unknown>,
+    message: MessageQueue,
     { isInternal, ...options }: QueueMessageOptions,
   ): Promise<boolean> {
     await this.#isConfigured
     const opts = await prepareOptions(options, this.#secret, this.getContext)
     const queuePath = isInternal ? qPath(queue) : queue
     const secureMessage = await encode(message, this.#secret)
-    return this.#channel.sendToQueue(queuePath, secureMessage, opts)
+    return this.#notifierChannel.sendToQueue(queuePath, secureMessage, opts)
   }
 
   /**
@@ -162,14 +174,14 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    *
    * @param {string} topic - The routing key used by the global exchange.
    *   This determines how queues bound to the exchange will receive the message.
-   * @param {string | Record<string, unknown>} message - The message payload.
+   * @param {Message} message - The message payload.
    *   Objects are encoded before publishing.
    * @param {MessageOptions} [options] - Optional AMQP publish options.
    * @returns {Promise<boolean>} A promise that resolves to the result of `publish`.
    */
   public override async sendMessage(
     topic: string,
-    message: string | Record<string, unknown>,
+    message: MessageQueue,
     { isInternal, ...options }: QueueMessageOptions,
   ): Promise<boolean> {
     await this.#isConfigured
@@ -179,7 +191,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     else if (isInternal) topic = qPath(topic)
 
     const secureMessage = await encode(message, this.#secret)
-    return this.#channel.publish(GLOBAL_EXCHANGE, topic, secureMessage, opts)
+    return this.#notifierChannel.publish(GLOBAL_EXCHANGE, topic, secureMessage, opts)
   }
 
   /**
@@ -209,7 +221,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
         ...message.properties.headers,
         [MESSAGE_HEADERS.rqFromDL]: true,
       }
-      this.#channel.sendToQueue(queuePath, message.content, message.properties)
+      this.#notifierChannel.sendToQueue(queuePath, message.content, message.properties)
       return decode(message.content, this.#secret)
     }))
   }
@@ -223,7 +235,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    *
    * @async
    * @param {string} queue - The name of the queue where the message will be published.
-   * @param {string | Record<string, unknown>} message - The message payload to send.
+   * @param {Message} message - The message payload to send.
    *   It will be securely encoded before publication.
    * @param {Omit<QueueMessageOptions, 'expiration'> & Object} options - Configuration options
    *   for scheduling and message publishing.
@@ -236,7 +248,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    */
   public override async schedule(
     queue: string,
-    message: string | Record<string, unknown>,
+    message: MessageQueue,
     { isInternal, date, delay = 0, ...options }:
       & Omit<QueueMessageOptions, 'expiration'>
       & ScheduleOptions,
@@ -263,6 +275,11 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
       )
     }
 
-    return this.#channel.publish(SCHEDULER_EXCHANGE, schqPath(queuePath), secureMessage, opts)
+    return this.#notifierChannel.publish(
+      SCHEDULER_EXCHANGE,
+      schqPath(queuePath),
+      secureMessage,
+      opts,
+    )
   }
 }

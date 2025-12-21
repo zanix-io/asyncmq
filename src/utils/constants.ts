@@ -1,5 +1,17 @@
-export const QUEUES_METADATA_KEY = 'zanix:asyncmq-queues'
-export const CRONS_METADATA_KEY = 'zanix:asyncmq-queues-crons'
+import type { Execution } from 'typings/queues.ts'
+
+export const SUBSCRIBERS_METADATA_KEY: Record<Execution, string> = {
+  'main-process': 'zanix:asyncmq-subscribers-in-process',
+  'extra-process': 'zanix:asyncmq-subscribers-out-of-process',
+}
+
+export const CRONS_METADATA_KEY: Record<Execution, string> = {
+  'main-process': 'zanix:asyncmq-crons-in-process',
+  'extra-process': 'zanix:asyncmq-crons-out-of-process',
+}
+
+export const JOBS_METADATA_KEY = 'zanix:asyncmq-jobs'
+export const TASKS_METADATA_KEY = 'zanix:asyncmq-tasks'
 
 export const GLOBAL_EXCHANGE = 'zanix.amqp'
 export const DEADLETTER_EXCHANGE = 'zanix.amqp.dlx'

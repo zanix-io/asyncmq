@@ -1,6 +1,6 @@
 {
   "name": "@zanix/asyncmq",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "compilerOptions": {
     "strict": true,
     "noImplicitAny": true
@@ -56,6 +56,9 @@
     "@zanix/helpers": "jsr:@zanix/utils@2.x/helpers",
     "@zanix/logger": "jsr:@zanix/utils@2.x/logger",
     "@zanix/errors": "jsr:@zanix/utils@2.x/errors",
+    "@zanix/workers": "jsr:@zanix/utils@2.x/workers",
+    "@zanix/typings": "jsr:@zanix/utils@2.x/types",
+    "@zanix/datamaster": "jsr:@zanix/datamaster@0.x/core",
     "shared/": "./src/shared/",
     "typings/": "./src/typings/",
     "utils/": "./src/utils/",
@@ -63,6 +66,7 @@
   },
   "exports": {
     ".": "./mod.ts",
+    "./worker": "./src/modules/worker/e-process.ts",
     "./core": "./src/modules/core.ts"
   },
   "nodeModulesDir": "auto",

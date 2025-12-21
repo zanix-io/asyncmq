@@ -8,3 +8,4 @@
  */
 
 export * from './rabbitmq/defs.ts'
+export * from './worker/defs.ts'

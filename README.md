@@ -281,7 +281,7 @@ When a message is executed by a cron job, the queue handler receives additional 
 `info` object:
 
 ```ts
-async onmessage(data: any, info: OnMessageInfo) {
+async onmessage(data: any, info: MessageInfo) {
   console.log(info.cron)
 }
 ```
@@ -311,7 +311,7 @@ Cron jobs and scheduled messages integrate seamlessly with AsyncMQ’s retry sys
 - `onError` handlers receive full scheduling metadata
 
 ```ts
-async onerror(error: Error, info: OnErrorInfo) {
+async onerror(error: Error, info: ErrorInfo) {
   console.log('Requeued:', info.requeued)
   console.log('Cron job:', info.cron?.name)
 }
@@ -348,6 +348,180 @@ Each queue receives:
 5. Delivered to `onmessage` only if valid
 
 Invalid payloads are logged and routed to DLQ.
+
+---
+
+## 🛠 Worker & Task Execution
+
+Zanix AsyncMQ allows executing **distributed jobs** and **internal tasks** via its **Worker
+Provider**, using different types of queues depending on the workload.
+
+---
+
+### 1. Jobs vs Tasks
+
+| Type     | Executed on                                                               | Persistence             | Recommended use                                  |
+| -------- | ------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------ |
+| **Job**  | Predefined AMQP queues (`soft`, `moderate`, `intensive`) or custom queues | Durable and distributed | Critical processes, retryable, shared queues     |
+| **Task** | Internal queues (`soft`, `moderate`, `intensive`)                         | Ephemeral               | Quick execution, local tasks without persistence |
+
+> ⚠️ Predefined AMQP queues **always run in `extra-process`**, so it is necessary to run the
+> external worker (`@zanix/asyncmq/worker`) to process them. Internal tasks use the `soft`,
+> `moderate`, or `intensive` queues and **do not require an external worker**, as they run in an
+> **internal-process** context.
+
+---
+
+### 2. Predefined Queues
+
+| Queue       | Type                    | Execution        | Description                  |
+| ----------- | ----------------------- | ---------------- | ---------------------------- |
+| `soft`      | Internal task           | internal-process | Light local tasks, ephemeral |
+| `moderate`  | Internal task           | internal-process | Medium load local tasks      |
+| `intensive` | Internal task           | internal-process | Heavy local tasks            |
+| `soft`      | Predefined AMQP for job | extra-process    | Lightweight distributed jobs |
+| `moderate`  | Predefined AMQP for job | extra-process    | Medium load distributed jobs |
+| `intensive` | Predefined AMQP for job | extra-process    | Heavy distributed jobs       |
+
+---
+
+### 3. Jobs and Cron Jobs Examples
+
+```ts
+import { registerJob } from 'modules/jobs/task.defs.ts'
+import { registerCronJob } from 'modules/jobs/cron.defs.ts'
+
+// Distributed job in a custom AMQP queue
+registerJob({
+  name: 'my-custom-job',
+  args: { message: 'hello custom queue' },
+  customQueue: 'extra-process-queue', // runs in extra-process custom queue
+})
+
+// Internal task in the moderate queue
+registerJob({
+  name: 'my-moderate-task',
+  args: { message: 'hello local moderate queue' },
+  processingQueue: 'moderate', // internal-process
+  handler: function (args: { message: string }) {
+  },
+})
+
+// Internal cron job in the soft queue
+registerCronJob({
+  name: 'my-handler-cron',
+  isActive: true,
+  args: { message: 'hello cron soft queue' },
+  processingQueue: 'soft', // internal-process
+  handler: function (args: { message: string }) {
+  },
+  schedule: '*/2 * * * * *',
+})
+```
+
+---
+
+### 4. Custom Subscriber (extra-process)
+
+```ts
+import { Subscriber } from 'modules/subscribers/decorators/base.ts'
+import { ZanixSubscriber } from 'modules/subscribers/base.ts'
+
+@Subscriber({ queue: { topic: 'extra-process-queue', execution: 'extra-process' } })
+export class _Subscriber extends ZanixSubscriber {
+  protected async onmessage(args: { message: string }) {
+  }
+}
+```
+
+---
+
+### 5. Running Jobs and Tasks
+
+```ts
+// Distributed jobs (extra-process or custom queue)
+await worker.runJob('my-custom-job', { args: { message: 'Hello!' } })
+
+// Internal tasks (soft/moderate/intensive)
+worker.runTask('my-moderate-task', {
+  args: { message: 'Hello local!' },
+  callback: (err, result) => console.log(result),
+})
+```
+
+---
+
+### 6. Executing Generic Tasks
+
+For quick, moderate, or light tasks where no dependency injection is required, you can use
+`executeGeneralTask`. This method runs a function inside a default `WorkerManager` instance (with 3
+workers by default) in an **internal-process** context.
+
+```ts
+const invokeTask = worker.executeGeneralTask(
+  fn, // function to handle
+  {
+    metaUrl: import.meta.url, // Required metadata for the worker
+    timeout: 5000, // Optional max execution time in ms
+    callback: (err, result) => {
+      if (err) console.error(err)
+      else console.log('Result from task:', result)
+    },
+  },
+)
+
+// Invoke the task
+invokeTask()
+```
+
+This is ideal for:
+
+- Lightweight computations or transformations
+- Non-persistent background tasks
+- Quick local tasks where dependency injection is not required
+
+> ⚠️ Like other internal queues (`soft`, `moderate`, `intensive`), generic tasks run in
+> **internal-process** and **do not require** the external worker.
+
+---
+
+### 7. Running the Worker
+
+To process **predefined AMQP queues** or **custom extra-process queues**, run the external worker:
+
+```bash
+deno run -A @zanix/asyncmq/worker
+```
+
+This script:
+
+- Initializes the AMQP queues.
+- Processes distributed jobs.
+- Listens and executes tasks published to extra-process queues.
+
+> ⚠️ Internal queues (`soft`, `moderate`, `intensive`) for **local tasks** **do not require** the
+> external worker and run automatically in the `internal-process` context.
+
+---
+
+### 8. Informative Environment Variable
+
+During execution, the system internally manages:
+
+```text
+ZANIX_WORKER_EXECUTION
+```
+
+Possible values:
+
+| Value              | Meaning                                       |
+| ------------------ | --------------------------------------------- |
+| `main-process`     | Main application execution (default)          |
+| `extra-process`    | Execution in an external worker (AMQP jobs)   |
+| `internal-process` | Execution in an internal worker (local tasks) |
+
+> This variable is **automatically managed by the system** and **is only for internal reference**.
+> It should **not be manually set**.
 
 ---
 

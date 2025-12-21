@@ -1,30 +1,31 @@
 import type { ZanixCacheProvider, ZanixKVConnector } from '@zanix/server'
 
-import { QUEUES_METADATA_KEY } from './constants.ts'
 import logger from '@zanix/logger'
 
 export async function storageQueueOptions<T>(
+  key: string,
   data: T,
-  cache: ZanixCacheProvider,
-  kvDb: ZanixKVConnector,
+  storage: { cache: ZanixCacheProvider; kvLocal: ZanixKVConnector },
 ) {
+  const { kvLocal, cache } = storage
   if (Deno.env.has('REDIS_URI')) {
-    await cache.redis.set(QUEUES_METADATA_KEY, data)
+    await cache.redis.set(key, data)
   } else {
     logger.warn(
       'The queue setup system is currently using the local KV storage backend. ' +
         'For distributed deployments or more reliable persistence, consider enabling Redis by defining the REDIS_URI environment variable.',
       'noSave',
     )
-    kvDb.set(QUEUES_METADATA_KEY, data)
+    kvLocal.set(key, data)
   }
 }
 
 export function getStoragedQueueOptions<T>(
-  cache: ZanixCacheProvider,
-  kvDb: ZanixKVConnector,
+  key: string,
+  storage: { cache: ZanixCacheProvider; kvLocal: ZanixKVConnector },
 ): T | Promise<T> {
+  const { kvLocal, cache } = storage
   return Deno.env.has('REDIS_URI')
-    ? cache.redis.get<T>(QUEUES_METADATA_KEY).then((resp) => resp || {} as T)
-    : kvDb.get<T>(QUEUES_METADATA_KEY) || {} as T
+    ? cache.redis.get<T>(key).then((resp) => resp || {} as T)
+    : kvLocal.get<T>(key) || {} as T
 }

@@ -1,6 +1,7 @@
 import { type ConnectorOptions, ZanixAsyncmqConnector } from '@zanix/server'
 import { type Channel, type ChannelModel, connect, type ConsumeMessage, type Options } from 'amqp'
 import logger from '@zanix/logger'
+import { qPath } from './provider/setup.ts'
 
 /**
  * Represents a RabbitMQ connector used by the Zanix integration layer.
@@ -60,20 +61,23 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
   public async consumeAllMessages(
     queue: string,
     options: Options.AssertQueue & {
+      isInternal?: boolean
       channel?: Channel
       filter?: (msg: ConsumeMessage) => boolean
     } = {},
   ): Promise<ConsumeMessage[]> {
     await this.isReady
-    const { filter = () => true, channel = await this.createChannel(), ...opts } = options
-    const { messageCount } = await channel.assertQueue(queue, opts)
+    const { filter = () => true, channel = await this.createChannel(), isInternal, ...opts } =
+      options
+    const fullQueuePath = isInternal ? qPath(queue) : queue
+    const { messageCount } = await channel.assertQueue(fullQueuePath, opts)
     const messages: ConsumeMessage[] = []
 
     if (messageCount === 0) return messages
 
     return new Promise((resolve) => {
       let received = 0
-      channel.consume(queue, (msg) => {
+      channel.consume(fullQueuePath, (msg) => {
         if (!msg) return
         received++
         if (filter(msg)) {
@@ -90,6 +94,9 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
 
   protected async initialize(): Promise<void> {
     this.#connection = await connect(this.#uri)
+    this.#connection.on('close', () => {
+      this.#connected = false
+    })
     logger.success(`RabbitMQ Connected Successfully through '${this.name}' class`)
     this.#connected = true
   }
@@ -99,8 +106,8 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
       // Disconnect from amqp
       logger.info('Closing the RabbitMQ connection...', 'noSave')
       await this.#connection.close()
-      this.#connected = false
     } catch (e) {
+      if (e?.['message' as never] === 'Connection closing') return
       logger.error(
         `Failed to disconnect RabbitMQ in '${this.name}' class`,
         e,

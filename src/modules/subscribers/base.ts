@@ -1,4 +1,4 @@
-import type { IZanixQueue, OnErrorInfo, OnMessageInfo } from 'typings/queues.ts'
+import type { ErrorInfo, IZanixSubscriber, MessageInfo } from 'typings/queues.ts'
 import type { BaseRTO } from '@zanix/validator'
 
 import logger from '@zanix/logger'
@@ -10,20 +10,20 @@ import {
 } from '@zanix/server'
 
 /**
- * Abstract class `ZanixQueue` that extends `HandlerGenericClass`.
- * This class represents a queue that handles asynchronous interactions through
- * a generic `Interactor` type. The queue is likely used to manage messages or events
+ * Abstract class `ZanixSubscriber` that extends `HandlerGenericClass`.
+ * This class represents a subscriber that handles asynchronous interactions through
+ * a generic `Interactor` type. The subscriber is likely used to manage messages or events
  * in an event-driven or asynchronous task system.
  *
- * @template Interactor - The type of interaction associated with the queue. Defaults to `never`,
+ * @template Interactor - The type of interaction associated with the subscriber. Defaults to `never`,
  * but can be specified to better type the interaction.
  *
- * @extends {HandlerGenericClass<Interactor, IZanixQueue[keyof IZanixQueue]>}
+ * @extends {HandlerGenericClass<Interactor, IZanixSubscriber[keyof IZanixSubscriber]>}
  *
  * @abstract
  */
-export abstract class ZanixQueue<Interactor extends ZanixInteractorGeneric = never>
-  extends HandlerGenericClass<Interactor, IZanixQueue[keyof IZanixQueue]> {
+export abstract class ZanixSubscriber<Interactor extends ZanixInteractorGeneric = never>
+  extends HandlerGenericClass<Interactor, IZanixSubscriber[keyof IZanixSubscriber]> {
   constructor(context: HandlerContext) {
     super(context.id)
 
@@ -50,7 +50,7 @@ export abstract class ZanixQueue<Interactor extends ZanixInteractorGeneric = nev
   protected abstract onmessage(
     // deno-lint-ignore no-explicit-any
     message: any,
-    info: OnMessageInfo,
+    info: MessageInfo,
   ): Promise<void> | void
 
   /**
@@ -61,7 +61,7 @@ export abstract class ZanixQueue<Interactor extends ZanixInteractorGeneric = nev
     // deno-lint-ignore no-explicit-any no-unused-vars
     message: any,
     error: unknown,
-    info: OnErrorInfo,
+    info: ErrorInfo,
   ) {
     // deno-lint-ignore no-explicit-any
     ;(error as any).meta = {
@@ -71,6 +71,10 @@ export abstract class ZanixQueue<Interactor extends ZanixInteractorGeneric = nev
       attempt: info.attempt,
     }
 
-    logger.error(`An error occurred on the asyncmq queue "${info.queue}"`, error, 'noSave')
+    logger.error(
+      `An error occurred in the queue subscriber for topic "${info.queue}"`,
+      error,
+      'noSave',
+    )
   }
 }

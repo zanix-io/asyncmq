@@ -1,8 +1,9 @@
-import type { HandlerContext, QueueMessageOptions, ScopedContext } from '@zanix/server'
+import type { MessageQueue, QueueMessageOptions, ScopedContext } from '@zanix/server'
 import type { Options } from 'amqp'
 
 import { MESSAGE_HEADERS, QUEUE_PRIORITY } from 'utils/constants.ts'
-import { decrypt, encrypt, generateUUID } from '@zanix/helpers'
+import { decrypt, encrypt } from '@zanix/helpers'
+import { prepareContext } from 'utils/context.ts'
 import { Buffer } from 'node:buffer'
 
 export const prepareOptions = async (
@@ -14,14 +15,7 @@ export const prepareOptions = async (
     options
   const opts: Options.Publish = baseOpts
 
-  const scopedContext = contextId ? getContext(contextId) : undefined
-  const context: Omit<HandlerContext, 'req' | 'url'> = {
-    ...scopedContext,
-    id: scopedContext?.id || generateUUID(),
-    cookies: scopedContext?.cookies || {},
-    locals: scopedContext?.locals || {},
-    payload: { params: {}, search: {}, body: {} },
-  }
+  const context = prepareContext(getContext, contextId)
 
   // Headers
   opts.headers = {
@@ -40,8 +34,8 @@ export const prepareOptions = async (
   return opts
 }
 
-export const encode = async (message: string | Record<string, unknown>, secret: string) =>
-  Buffer.from(await encrypt(JSON.stringify(message), secret))
+export const encode = async (message: MessageQueue | null, secret: string) =>
+  message ? Buffer.from(await encrypt(JSON.stringify(message), secret)) : Buffer.from('')
 
 export const decode = async (message: Buffer<ArrayBufferLike>, secret: string) =>
-  JSON.parse(await decrypt(message.toString(), secret))
+  message.length ? JSON.parse(await decrypt(message.toString(), secret)) : ''

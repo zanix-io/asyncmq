@@ -1,7 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 // processorHandler.test.ts
 
-import { processorHandler } from 'modules/queues/handler.ts'
+import { processorHandler } from 'modules/subscribers/handler.ts'
 import { MESSAGE_HEADERS } from 'utils/constants.ts'
 import { assertEquals } from '@std/assert'
 import { encode } from 'modules/rabbitmq/provider/messages.ts'

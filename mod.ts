@@ -11,12 +11,14 @@
 export { ZanixRabbitMQConnector } from 'modules/rabbitmq/connector.ts'
 export { ZanixCoreAsyncMQProvider } from 'modules/rabbitmq/provider/mod.ts'
 
-// Queues
-export { ZanixQueue } from 'modules/queues/base.ts'
-export { Queue } from 'modules/queues/decorators/base.ts'
+// Subscribers
+export { ZanixSubscriber } from 'modules/subscribers/base.ts'
+export { Subscriber } from 'modules/subscribers/decorators/base.ts'
 
 // Jobs
-export { registerCronJob } from 'modules/jobs/defs.ts'
+export { registerCronJob } from 'modules/jobs/cron.defs.ts'
+export { registerJob } from 'modules/jobs/task.defs.ts'
 
 // Types
-export type { OnErrorInfo, OnMessageInfo } from 'typings/queues.ts'
+export type { ErrorInfo, MessageInfo } from 'typings/queues.ts'
+export type { Job } from 'typings/jobs.ts'

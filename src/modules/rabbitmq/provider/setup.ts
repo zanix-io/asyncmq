@@ -1,18 +1,19 @@
 import type { ZanixCacheProvider, ZanixKVConnector } from '@zanix/server'
 import type { ZanixRabbitMQConnector } from '../connector.ts'
-import type { SubscriberMetadata } from 'typings/queues.ts'
-import type { Channel, Options } from 'amqp'
+import type { Execution, SubscriberMetadata } from 'typings/queues.ts'
+import type { Options } from 'amqp'
 
 import { getStoragedQueueOptions, storageQueueOptions } from 'utils/queues.ts'
-import { processorHandler } from 'modules/queues/handler.ts'
+import { processorHandler } from 'modules/subscribers/handler.ts'
 import {
   DEADLETTER_EXCHANGE,
   GLOBAL_EXCHANGE,
   QUEUE_PRIORITY,
-  QUEUES_METADATA_KEY,
   SCHEDULER_EXCHANGE,
+  SUBSCRIBERS_METADATA_KEY,
 } from 'utils/constants.ts'
 import { readConfig } from '@zanix/helpers'
+import logger from '@zanix/logger'
 
 export const project = readConfig().name || ''
 
@@ -26,8 +27,20 @@ export const schqPath = (queue: string) => `${queue}.schq` // scheduled queue
 export const cronqPath = (queue: string) => `${queue}.cron` // cron queue
 export const qPath = (queue: string) => queue ? `${project}.${queue}` : project
 
-const checkQueue = async (channel: Channel, queueName: string) => {
-  const q = await channel.checkQueue(queueName)
+const checkQueue = async (
+  connector: ZanixRabbitMQConnector,
+  queueName: string,
+) => {
+  const channel = await connector.createChannel()
+  channel.on('error', () => {})
+  channel.on('close', () => {})
+  const q = await channel.checkQueue(queueName).catch((e) => {
+    if (e.code === 404) {
+      return { consumerCount: 0, messageCount: 0 }
+    }
+    throw e
+  })
+  await channel.close().catch(() => {})
   return { isUnused: q.consumerCount === 0, isEmpty: q.messageCount === 0, queueName }
 }
 
@@ -38,7 +51,6 @@ const checkQueue = async (channel: Channel, queueName: string) => {
  *
  * This method:
  *  1. Waits for the configured `asyncmq` connector to become ready.
- *  2. Opens a new AMQP channel for this worker/service.
  *  3. Retrieves all subscriber metadata associated with `QUEUES_DATA_KEY`.
  *  4. Prepares queues, bindings, and consumption logic (if applicable).
  *
@@ -47,41 +59,55 @@ const checkQueue = async (channel: Channel, queueName: string) => {
  */
 export async function setup(
   options: {
+    execution: Execution
     connector: ZanixRabbitMQConnector
-    channel: Channel
-    tmpChannel: Channel
-    queues?: SubscriberMetadata[]
+    subscribers?: SubscriberMetadata[]
     kvLocal: ZanixKVConnector
     cache: ZanixCacheProvider
     secret: string
   },
 ) {
-  const { channel, tmpChannel, queues, kvLocal, cache, connector, secret } = options
+  const { subscribers, execution, kvLocal, cache, connector, secret } = options
 
-  if (!queues) {
-    kvLocal.delete(QUEUES_METADATA_KEY)
+  const subscriberKey = SUBSCRIBERS_METADATA_KEY[execution]
+
+  if (!subscribers) {
+    if (subscriberKey) kvLocal.delete(subscriberKey)
     return false
   }
 
-  const storagedQueues = await getStoragedQueueOptions<Record<string, string>>(
+  const setupChannel = await connector.createChannel()
+
+  const storagedQueues = await getStoragedQueueOptions<Record<string, string>>(subscriberKey, {
     cache,
     kvLocal,
-  )
+  })
   const queueOptions: typeof storagedQueues = {}
 
+  //--------------------------
   // Create global exchanges
+  //--------------------------
   await Promise.all([
-    channel.assertExchange(GLOBAL_EXCHANGE, 'topic', { durable: true }),
-    channel.assertExchange(DEADLETTER_EXCHANGE, 'direct', { durable: true }),
-    channel.assertExchange(SCHEDULER_EXCHANGE, 'direct', { durable: true }),
+    setupChannel.assertExchange(GLOBAL_EXCHANGE, 'topic', { durable: true }),
+    setupChannel.assertExchange(DEADLETTER_EXCHANGE, 'direct', { durable: true }),
+    setupChannel.assertExchange(SCHEDULER_EXCHANGE, 'direct', { durable: true }),
   ])
 
   const queuesPaths: string[] = []
 
+  //--------------------------
   // Prepare Queues
-  for await (const [queue, options, Queue] of queues) {
+  //--------------------------
+  for await (const [queue, options, Subscriber] of subscribers) {
     queuesPaths.push(queue)
-    const { includeInGlobalExchange, retryConfig, maxPriority, ...baseOpts } = options
+    const {
+      includeInGlobalExchange,
+      retryConfig,
+      maxPriority,
+      consumerChannels = 1,
+      channelPrefetch = 1,
+      ...baseOpts
+    } = options
     const opts: Options.AssertQueue = baseOpts
     const fullQueuePath = qPath(queue)
 
@@ -97,22 +123,29 @@ export async function setup(
     const currentOpts = JSON.stringify(opts)
     queueOptions[queue] = currentOpts
 
-    // Re create queue if has changed, or assert it
+    //--------------------------
+    // Update Queues
+    //--------------------------
     if (storagedOptions && storagedOptions !== currentOpts) {
+      // Re create queue if has changed, or assert it
       const oldOptions = JSON.parse(storagedOptions)
       const messages = await connector.consumeAllMessages(
         fullQueuePath,
         oldOptions,
       )
 
-      await channel.deleteQueue(fullQueuePath, { ifEmpty: true })
-      await channel.assertQueue(fullQueuePath, opts)
+      await setupChannel.deleteQueue(fullQueuePath, { ifEmpty: true })
+      await setupChannel.assertQueue(fullQueuePath, opts)
       for (const message of messages) {
-        channel.sendToQueue(fullQueuePath, message.content, message.properties)
+        setupChannel.sendToQueue(fullQueuePath, message.content, message.properties)
       }
     } else {
-      await channel.assertQueue(fullQueuePath, opts)
+      await setupChannel.assertQueue(fullQueuePath, opts)
     }
+
+    //--------------------------
+    // Binding
+    //--------------------------
 
     // Bind global exchange
     const globalExchangeBindings = [fullQueuePath, project, '__all__', `__all__.${queue}`]
@@ -120,45 +153,70 @@ export async function setup(
 
     await Promise.all(
       globalExchangeBindings.map((pattern) =>
-        channel[bindingAction](fullQueuePath, GLOBAL_EXCHANGE, pattern)
+        setupChannel[bindingAction](fullQueuePath, GLOBAL_EXCHANGE, pattern)
       ),
     )
 
     // Bind deadletter
     const dlq = dlqPath(fullQueuePath)
-    await channel.assertQueue(dlq, deadletterOpts)
-    await channel.bindQueue(dlq, DEADLETTER_EXCHANGE, fullQueuePath)
+    await setupChannel.assertQueue(dlq, deadletterOpts)
+    await setupChannel.bindQueue(dlq, DEADLETTER_EXCHANGE, fullQueuePath)
 
     // Bind scheduler
     const schq = schqPath(fullQueuePath)
-    await channel.assertQueue(schq, {
+    await setupChannel.assertQueue(schq, {
       ...schedulerOpts,
       deadLetterRoutingKey: fullQueuePath,
     })
-    await channel.bindQueue(schq, SCHEDULER_EXCHANGE, schq)
-    await channel.bindQueue(fullQueuePath, SCHEDULER_EXCHANGE, fullQueuePath)
+    await setupChannel.bindQueue(schq, SCHEDULER_EXCHANGE, schq)
+    await setupChannel.bindQueue(fullQueuePath, SCHEDULER_EXCHANGE, fullQueuePath)
 
     // Bind cron
     const cronq = schqPath(cronqPath(fullQueuePath))
-    await channel.assertQueue(cronq, {
+    await setupChannel.assertQueue(cronq, {
       ...schedulerOpts,
       deadLetterRoutingKey: fullQueuePath,
     })
-    await channel.bindQueue(cronq, SCHEDULER_EXCHANGE, cronq)
-    await channel.bindQueue(fullQueuePath, SCHEDULER_EXCHANGE, fullQueuePath)
+    await setupChannel.bindQueue(cronq, SCHEDULER_EXCHANGE, cronq)
+    await setupChannel.bindQueue(fullQueuePath, SCHEDULER_EXCHANGE, fullQueuePath)
 
+    //--------------------------
     // Prepare processor
-    await channel.consume(
-      fullQueuePath,
-      processorHandler(Queue, channel, {
-        secret,
-        queue: fullQueuePath,
-        retries: retryConfig,
-      }),
-    )
+    //--------------------------
+    await Promise.all([...Array(consumerChannels).keys()].map(async () => {
+      const consumerChannel = await connector.createChannel()
+      consumerChannel.on('error', (e) => {
+        logger.error(`Error occurred on the queue channel for queue: ${queue}`, {
+          cause: e,
+          meta: { source: 'zanix', queue, errorCode: e.code || 'UNKNOWN_ERROR' },
+        })
+      })
+      consumerChannel.on('close', () => {
+        logger.warn(`Queue channel has been closed for queue: ${queue}`, {
+          meta: { source: 'zanix' },
+        })
+      })
+
+      // Limits the number of unacknowledged messages per consumer channel,
+      // controlling concurrency and backpressure for this queue.
+      await consumerChannel.prefetch(channelPrefetch)
+      await consumerChannel.consume(
+        fullQueuePath,
+        processorHandler(Subscriber, consumerChannel, {
+          secret,
+          execution,
+          queue: fullQueuePath,
+          retries: retryConfig,
+        }),
+      )
+    }))
   }
 
+  const extraProcessChannel = await connector.createChannel()
+
+  //--------------------------
   // Delete orphan queues
+  //--------------------------
   const queuesToDelete = Object.entries(storagedQueues).filter((key) =>
     !queuesPaths.includes(key[0])
   )
@@ -167,12 +225,14 @@ export async function setup(
     const fullQueuePath = qPath(queue)
 
     const deleteOptions = { ifUnused: true, ifEmpty: true }
-
+    const dlq = dlqPath(fullQueuePath)
+    const schq = schqPath(fullQueuePath)
+    const cjq = schqPath(cronqPath(fullQueuePath))
     const queuesInfo = await Promise.all([
-      checkQueue(tmpChannel, fullQueuePath),
-      checkQueue(tmpChannel, dlqPath(fullQueuePath)),
-      checkQueue(tmpChannel, schqPath(fullQueuePath)),
-      checkQueue(tmpChannel, schqPath(cronqPath(fullQueuePath))),
+      checkQueue(connector, fullQueuePath),
+      checkQueue(connector, dlq),
+      checkQueue(connector, schq),
+      checkQueue(connector, cjq),
     ])
 
     if (!queuesInfo.every((q) => q.isEmpty && q.isUnused)) {
@@ -180,14 +240,21 @@ export async function setup(
     }
 
     return Promise.all([
-      tmpChannel.deleteQueue(fullQueuePath, deleteOptions),
-      tmpChannel.deleteQueue(dlqPath(fullQueuePath), deleteOptions),
-      tmpChannel.deleteQueue(schqPath(fullQueuePath), deleteOptions),
-      tmpChannel.deleteQueue(schqPath(cronqPath(fullQueuePath)), deleteOptions),
+      extraProcessChannel.deleteQueue(fullQueuePath, deleteOptions),
+      extraProcessChannel.deleteQueue(dlq, deleteOptions),
+      extraProcessChannel.deleteQueue(schq, deleteOptions),
+      extraProcessChannel.deleteQueue(cjq, deleteOptions),
     ])
   })
   await Promise.all(promisesToDelete)
-  await tmpChannel.close()
 
-  await storageQueueOptions(queueOptions, cache, kvLocal)
+  //--------------------------
+  // Close Channels
+  //--------------------------
+  await Promise.all([setupChannel.close(), extraProcessChannel.close()])
+
+  //--------------------------
+  // Save queue data
+  //--------------------------
+  await storageQueueOptions(subscriberKey, queueOptions, { cache, kvLocal })
 }

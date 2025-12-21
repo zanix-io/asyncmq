@@ -1,12 +1,12 @@
-import type { IZanixQueue, OnMessageInfo, QueueOptions } from 'typings/queues.ts'
+import type { Execution, IZanixSubscriber, MessageInfo, QueueOptions } from 'typings/queues.ts'
 import type { CronRegistry } from 'typings/crons.ts'
 import type { Channel, ConsumeMessage } from 'amqp'
 
 import { cleanUpPipe, contextSettingPipe, type HandlerContext, ProgramModule } from '@zanix/server'
 import { CRONS_METADATA_KEY, MESSAGE_HEADERS, SCHEDULER_EXCHANGE } from 'utils/constants.ts'
+import { cronqPath, qPath, schqPath } from '../rabbitmq/provider/setup.ts'
 import { decode } from '../rabbitmq/provider/messages.ts'
 import { nextCronDate } from 'utils/cron.ts'
-import { cronqPath, qPath, schqPath } from '../rabbitmq/provider/setup.ts'
 
 /**
  * Creates a message processor for a specific subscriber and queue.
@@ -16,9 +16,10 @@ import { cronqPath, qPath, schqPath } from '../rabbitmq/provider/setup.ts'
  * retries according to the provided retry configuration.
  */
 export const processorHandler = (
-  Queue: new (ctx: HandlerContext) => IZanixQueue,
+  Subscriber: new (ctx: HandlerContext) => IZanixSubscriber,
   channel: Channel,
-  { queue, secret, retries = {} }: {
+  { queue, secret, execution = 'main-process', retries = {} }: {
+    execution?: Execution
     queue: string
     retries?: QueueOptions['retryConfig']
     secret: string
@@ -34,7 +35,7 @@ export const processorHandler = (
   } = retries
 
   const crons = Object.fromEntries(
-    ProgramModule.registry.get<CronRegistry[]>(CRONS_METADATA_KEY) || [],
+    ProgramModule.registry.get<CronRegistry[]>(CRONS_METADATA_KEY[execution]) || [],
   )
 
   return async (msg: ConsumeMessage | null) => {
@@ -49,9 +50,9 @@ export const processorHandler = (
     context.payload.body = messageContent
     contextSettingPipe(context)
 
-    const subscriber = new Queue(context)
+    const subscriber = new Subscriber(context)
     const attempt = msg.properties?.headers?.['x-attempt'] || 0
-    const baseInfo: OnMessageInfo = { attempt, queue, context, messageId: msg.properties.messageId }
+    const baseInfo: MessageInfo = { attempt, queue, context, messageId: msg.properties.messageId }
 
     const rqFromDL = headers[MESSAGE_HEADERS.rqFromDL]
     if (rqFromDL) baseInfo.requeuedFromDeadLetter = true
@@ -65,7 +66,7 @@ export const processorHandler = (
       const options = { ...msg.properties, ...cron.settings }
 
       const nextExecution = nextCronDate(cron.schedule)
-      baseInfo.cron = { nextExecution, name: cron.name, expression: cron.schedule }
+      baseInfo.cron = { nextExecution, name: cronIdentifier, expression: cron.schedule }
 
       options.expiration = nextExecution.getTime() - Date.now()
       channel.publish(

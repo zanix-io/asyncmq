@@ -11,11 +11,15 @@ import { ZanixCoreAsyncMQProvider } from './provider/mod.ts'
 import { ZanixRabbitMQConnector } from './connector.ts'
 import { Connector, Provider } from '@zanix/server'
 
+const isInternal = Deno.env.get('ZANIX_WORKER_EXECUTION') === 'internal-process'
+
+const startMode = isInternal ? 'lazy' : 'postBoot'
+
 /** Connector DSL definition */
 const registerConnector = () => {
   if (!Deno.env.has('AMQP_URI')) return
 
-  @Connector('asyncmq')
+  @Connector({ type: 'asyncmq', startMode })
   class _ZanixRabbitMQConnector extends ZanixRabbitMQConnector {
     constructor(contextId?: string) {
       // deno-lint-ignore no-non-null-assertion
@@ -23,7 +27,7 @@ const registerConnector = () => {
     }
   }
 
-  @Provider({ type: 'asyncmq', startMode: 'postBoot' })
+  @Provider({ type: 'asyncmq', startMode })
   class _ZanixAsyncMQProvider extends ZanixCoreAsyncMQProvider {
     constructor(contextId?: string) {
       super(contextId)

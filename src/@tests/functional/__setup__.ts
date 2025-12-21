@@ -92,7 +92,7 @@ export const childSpawn = async (id: string) => {
 
   const child = command.spawn()
 
-  await new Promise((resolve) => setTimeout(resolve, 1000)) //await until preload queues are created the first time
+  await new Promise((resolve) => setTimeout(resolve, 3000)) //await until preload queues are created the first time
   return child
 }
 

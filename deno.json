@@ -58,7 +58,7 @@
     "@zanix/errors": "jsr:@zanix/utils@2.2.x/errors",
     "@zanix/workers": "jsr:@zanix/utils@2.2.x/workers",
     "@zanix/typings": "jsr:@zanix/utils@2.2.x/types",
-    "@zanix/datamaster": "jsr:@zanix/datamaster@0.x/core",
+    "@zanix/datamaster": "jsr:@zanix/datamaster@0.4.x/core",
     "shared/": "./src/shared/",
     "typings/": "./src/typings/",
     "utils/": "./src/utils/",

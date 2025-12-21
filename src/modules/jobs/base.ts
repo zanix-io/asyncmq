@@ -1,10 +1,10 @@
+import logger from '@zanix/logger'
+import { ProgramModule } from '@zanix/server'
 import type { BaseJob, JobProcess } from 'typings/jobs.ts'
 import type { Execution, SubscriberMetadata } from 'typings/queues.ts'
 
-import { SUBSCRIBERS_METADATA_KEY } from 'utils/constants.ts'
-import { ProgramModule } from '@zanix/server'
-import { InternalError } from '@zanix/errors'
 import { registerTask } from 'utils/tasks.ts'
+import { SUBSCRIBERS_METADATA_KEY } from 'utils/constants.ts'
 
 // deno-lint-ignore no-explicit-any
 export const getRegisterBaseJobData = <J extends JobProcess<any> & BaseJob>(
@@ -12,11 +12,9 @@ export const getRegisterBaseJobData = <J extends JobProcess<any> & BaseJob>(
 ) => {
   const { name, processingQueue, handler, customQueue, ...jobDef } = job
 
-  let queue: string
+  const queue = processingQueue ? `zanix.worker.${processingQueue}` : customQueue
 
-  if (processingQueue) {
-    queue = `zanix.worker.${processingQueue}`
-  } else {
+  setTimeout(() => {
     const inProcessQueues =
       ProgramModule.registry.get<SubscriberMetadata[]>(SUBSCRIBERS_METADATA_KEY['main-process']) ||
       []
@@ -25,13 +23,11 @@ export const getRegisterBaseJobData = <J extends JobProcess<any> & BaseJob>(
     ) ||
       []
 
-    queue = customQueue
-
-    const exists = processingQueue ? true : inProcessQueues.find((q) => q[0] === queue) ||
+    const exists = inProcessQueues.find((q) => q[0] === queue) ||
       outOfProcessQueues.find((q) => q[0] === queue)
 
     if (!exists) {
-      throw new InternalError(
+      logger.error(
         `The specified queue '${queue}' does not exist or is not properly configured.`,
         {
           meta: {
@@ -43,7 +39,7 @@ export const getRegisterBaseJobData = <J extends JobProcess<any> & BaseJob>(
         },
       )
     }
-  }
+  }, 500)
 
   let execution: Execution = 'main-process'
   if (handler) {

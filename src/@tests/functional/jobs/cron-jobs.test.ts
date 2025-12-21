@@ -1,6 +1,6 @@
 import { registerCronJob } from 'modules/jobs/cron.defs.ts'
-import { registerProvider, registerQueue } from '../__setup__.ts'
-import { assert, assertAlmostEquals, assertEquals } from '@std/assert'
+import { childSpawn, killChild, registerProvider, registerQueue } from '../__setup__.ts'
+import { assert, assertAlmostEquals } from '@std/assert'
 
 Deno.test({
   sanitizeOps: false,
@@ -37,13 +37,25 @@ Deno.test({
   name: 'Crons should works with processing queues',
   fn: async () => {
     Deno.env.set('AMQP_URI', 'amqp://guest:guest@localhost:5672/')
-    import('modules/worker/e-process.ts')
 
-    await new Promise((resolve) => setTimeout(resolve, 3000))
+    await import('./job.defs.ts')
 
-    assertEquals(
-      globalThis['cron-job-finish-response' as never],
-      'hello cron soft queue (zanix.worker.soft)',
-    )
+    const child = childSpawn('my-handler-cron')
+
+    setTimeout(() => {
+      registerProvider()
+    }, 100)
+
+    let hasMessage = false
+    // deno-lint-ignore no-non-null-assertion
+    for await (const chunk of child.stdout!) {
+      const message = new TextDecoder().decode(chunk)
+
+      hasMessage = message === 'cron-job-finish-response: hello cron soft queue (zanix.worker.soft)'
+      if (hasMessage) break
+    }
+
+    await killChild(child)
+    assert(hasMessage)
   },
 })

@@ -59,6 +59,7 @@ export const processorHandler = (
 
     // Cron scheduler
     const cronIdentifier = headers[MESSAGE_HEADERS.cronIdentifier]
+
     if (cronIdentifier) {
       const cron = crons[cronIdentifier]
       if (!cron?.isActive) return

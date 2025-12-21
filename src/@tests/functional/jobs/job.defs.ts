@@ -22,6 +22,7 @@ registerJob({
   args: { message: 'hello local intensive queue' },
   processingQueue: 'intensive',
   handler: async function (args: { message: string }) {
+    if (Deno.env.get('id') !== 'my-intensive-job') return
     // this should not throw
     this.providers.get('cache')['kvLocal']
     this.providers.get('worker')
@@ -33,8 +34,6 @@ registerJob({
         ` (${this.context.queue})`
       }`),
     )
-
-    setTimeout(() => Deno.exit(0), 100) // await until ack
   },
 })
 
@@ -43,14 +42,19 @@ registerCronJob({
   isActive: true,
   args: { message: 'hello cron soft queue' },
   processingQueue: 'soft',
-  handler: function (args: { message: string }) {
+  handler: async function (args: { message: string }) {
+    if (Deno.env.get('id') !== 'my-handler-cron') return
     // this should not throw
     this.providers.get('cache')['kvLocal']
     this.providers.get('worker')
     this.providers.get('asyncmq')
 
-    globalThis['cron-job-finish-response' as never] = args.message +
-      ` (${this.context.queue})` as never
+    await Deno.stdout.write(
+      new TextEncoder().encode(`cron-job-finish-response: ${
+        args.message +
+        ` (${this.context.queue})`
+      }`),
+    )
   },
   schedule: '*/2 * * * * *',
   settings: {
@@ -61,10 +65,10 @@ registerCronJob({
 @Subscriber({ queue: { topic: 'extra-process-queue', execution: 'extra-process' } })
 export class _Subscriber extends ZanixSubscriber {
   protected async onmessage(args: { message: string }) {
+    if (Deno.env.get('id') !== 'my-custom-job') return
     await Deno.stdout.write(
       new TextEncoder().encode(`external-job-finish-response: ${args.message}`),
     )
-    setTimeout(() => Deno.exit(0), 300) // await until ack
   }
 }
 

@@ -8,6 +8,7 @@ import { ZanixSubscriber } from 'modules/subscribers/base.ts'
 import { BaseRTO, IsString, isUUID } from '@zanix/validator'
 import { assert, assertEquals } from '@std/assert'
 import { ZanixCoreWorkerProvider } from 'modules/worker/provider.ts'
+import { dirname, join } from '@std/path'
 
 console.info = () => {}
 console.warn = () => {}
@@ -73,4 +74,33 @@ export const registerQueue = async (
   })
 
   return { calls, errors }
+}
+
+export const childSpawn = (id: string = '') => {
+  const file = join(dirname(import.meta.url), '../../modules/worker/e-process.ts')
+
+  const command = new Deno.Command('deno', {
+    args: ['run', '-A', file],
+    env: {
+      AMQP_URI: 'amqp://guest:guest@localhost:5672/',
+      id,
+    },
+    stdin: 'piped',
+    stdout: 'piped',
+    stderr: 'piped',
+  })
+
+  return command.spawn()
+}
+
+export const killChild = async (child: Deno.ChildProcess | null) => {
+  if (!child) return
+
+  try {
+    child.stdin?.close()
+    child.kill('SIGTERM')
+    await child.status
+  } finally {
+    child = null
+  }
 }

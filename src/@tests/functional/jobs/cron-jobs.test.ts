@@ -40,7 +40,7 @@ Deno.test({
 
     await import('./job.defs.ts')
 
-    const child = childSpawn('my-handler-cron')
+    const child = await childSpawn('my-handler-cron')
 
     setTimeout(() => {
       registerProvider()

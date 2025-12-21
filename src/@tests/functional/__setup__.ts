@@ -76,7 +76,7 @@ export const registerQueue = async (
   return { calls, errors }
 }
 
-export const childSpawn = (id: string = '') => {
+export const childSpawn = async (id: string) => {
   const file = join(dirname(import.meta.url), '../../modules/worker/e-process.ts')
 
   const command = new Deno.Command('deno', {
@@ -90,7 +90,10 @@ export const childSpawn = (id: string = '') => {
     stderr: 'piped',
   })
 
-  return command.spawn()
+  const child = command.spawn()
+
+  await new Promise((resolve) => setTimeout(resolve, 1000)) //await until preload queues are created the first time
+  return child
 }
 
 export const killChild = async (child: Deno.ChildProcess | null) => {

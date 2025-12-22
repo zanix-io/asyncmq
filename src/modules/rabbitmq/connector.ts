@@ -105,7 +105,7 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
     try {
       // Disconnect from amqp
       logger.info('Closing the RabbitMQ connection...', 'noSave')
-      await this.#connection.close()
+      await this.#connection?.close()
     } catch (e) {
       if (e?.['message' as never] === 'Connection closing') return
       logger.error(

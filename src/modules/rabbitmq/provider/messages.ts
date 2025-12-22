@@ -2,7 +2,7 @@ import type { MessageQueue, QueueMessageOptions, ScopedContext } from '@zanix/se
 import type { Options } from 'amqp'
 
 import { MESSAGE_HEADERS, QUEUE_PRIORITY } from 'utils/constants.ts'
-import { decrypt, encrypt } from '@zanix/helpers'
+import { decrypt, encrypt, generateUUID } from '@zanix/helpers'
 import { prepareContext } from 'utils/context.ts'
 import { Buffer } from 'node:buffer'
 
@@ -30,6 +30,8 @@ export const prepareOptions = async (
 
   // Defaults
   opts.persistent = opts.persistent ?? true
+
+  opts.messageId = opts.messageId || generateUUID()
 
   return opts
 }

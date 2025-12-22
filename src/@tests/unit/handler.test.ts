@@ -5,6 +5,7 @@ import { processorHandler } from 'modules/subscribers/handler.ts'
 import { MESSAGE_HEADERS } from 'utils/constants.ts'
 import { assertEquals } from '@std/assert'
 import { encode } from 'modules/rabbitmq/provider/messages.ts'
+import { ZanixCacheProvider } from '@zanix/server'
 
 // --- Mock Channel ---
 const createMockChannel: any = () => {
@@ -41,6 +42,18 @@ class MockQueue {
   public onerror(_body: any, _err: any, _opts: any) {}
 }
 
+class Cache extends ZanixCacheProvider {
+  public override use() {
+    return {
+      has: () => false,
+      get: () => null,
+      delete: () => true,
+      set: () => true,
+    } as any
+  }
+}
+const cache = new Cache()
+
 // --- Helper: create a message object ---
 const createMsg = async (body: any, headers: Record<string, any> = {}) => ({
   content: await encode(body, 'secret'),
@@ -60,6 +73,7 @@ Deno.test('processorHandler: processes message successfully and ACKs', async () 
   const handler = processorHandler(Queue, channel, {
     queue: 'jobs',
     secret: 'secret',
+    cache,
   })
 
   const context = { id: 'ctx1', payload: {}, locals: {} }
@@ -102,6 +116,7 @@ Deno.test(
     const handler = processorHandler(Queue, channel, {
       queue: 'jobs',
       secret: 'secret',
+      cache,
     })
 
     const msg = await createMsg(
@@ -140,6 +155,7 @@ Deno.test('processorHandler: NACKs when attempt >= maxRetries', async () => {
   const handler = processorHandler(Queue, channel, {
     queue: 'jobs',
     secret: 'secret',
+    cache,
   })
 
   const msg = await createMsg(
@@ -172,6 +188,7 @@ Deno.test('processorHandler: uses custom backoffStrategy from retryConfig', asyn
     {
       queue: 'jobs',
       secret: 'secret',
+      cache,
       retries: {
         maxRetries: 5,
         backoffStrategy: (attempt: number) => {
@@ -210,6 +227,7 @@ Deno.test(
     const handler = processorHandler(MockQueue, channel, {
       queue: 'jobs',
       secret: 'secret',
+      cache,
       retries: { maxRetries: 3 }, // global default
     })
 

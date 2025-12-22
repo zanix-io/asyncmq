@@ -207,6 +207,7 @@ export async function setup(
         processorHandler(Subscriber, consumerChannel, {
           crons,
           secret,
+          cache,
           execution,
           queue: fullQueuePath,
           retries: retryConfig,

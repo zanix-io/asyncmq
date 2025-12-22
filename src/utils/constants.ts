@@ -26,3 +26,7 @@ export const QUEUE_PRIORITY = {
   medium: 5,
   high: 10,
 }
+
+export const CACHE_KEYS = {
+  job: 'zanix:job',
+}

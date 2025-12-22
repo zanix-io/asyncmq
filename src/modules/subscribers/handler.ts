@@ -2,9 +2,15 @@ import type { Execution, IZanixSubscriber, MessageInfo, QueueOptions } from 'typ
 import type { CronRegistry } from 'typings/crons.ts'
 import type { Channel, ConsumeMessage } from 'amqp'
 
-import { cleanUpPipe, contextSettingPipe, type HandlerContext } from '@zanix/server'
+import {
+  cleanUpPipe,
+  contextSettingPipe,
+  type HandlerContext,
+  type ZanixCacheProvider,
+} from '@zanix/server'
 import { MESSAGE_HEADERS, SCHEDULER_EXCHANGE } from 'utils/constants.ts'
 import { cronqPath, qPath, schqPath } from '../rabbitmq/provider/setup.ts'
+import { lockMessage, unlockMessage } from 'utils/queues.ts'
 import { decode } from '../rabbitmq/provider/messages.ts'
 import { nextCronDate } from 'utils/cron.ts'
 
@@ -18,9 +24,10 @@ import { nextCronDate } from 'utils/cron.ts'
 export const processorHandler = (
   Subscriber: new (ctx: HandlerContext) => IZanixSubscriber,
   channel: Channel,
-  { queue, secret, crons = [], retries = {} }: {
+  { queue, secret, cache, crons = [], retries = {} }: {
     crons?: CronRegistry[]
     execution?: Execution
+    cache: ZanixCacheProvider
     queue: string
     retries?: QueueOptions['retryConfig']
     secret: string
@@ -39,6 +46,10 @@ export const processorHandler = (
 
   return async (msg: ConsumeMessage | null) => {
     if (!msg) return
+    const messageId = msg.properties.messageId
+    const canRun = await lockMessage(messageId, cache)
+    if (!canRun) return
+
     const headers = msg.properties?.headers || {}
     const [context, messageContent] = await Promise.all([
       decode(headers[MESSAGE_HEADERS.context], secret),
@@ -50,15 +61,14 @@ export const processorHandler = (
     contextSettingPipe(context)
 
     const subscriber = new Subscriber(context)
-    const attempt = msg.properties?.headers?.['x-attempt'] || 0
-    const baseInfo: MessageInfo = { attempt, queue, context, messageId: msg.properties.messageId }
+    const attempt = headers['x-attempt'] || 0
+    const baseInfo: MessageInfo = { attempt, queue, context, messageId }
 
     const rqFromDL = headers[MESSAGE_HEADERS.rqFromDL]
     if (rqFromDL) baseInfo.requeuedFromDeadLetter = true
 
     // Cron scheduler
     const cronIdentifier = headers[MESSAGE_HEADERS.cronIdentifier]
-
     if (cronIdentifier) {
       const cron = cronEntries[cronIdentifier]
       if (!cron?.isActive) return
@@ -68,19 +78,31 @@ export const processorHandler = (
       const nextExecution = nextCronDate(cron.schedule)
       baseInfo.cron = { nextExecution, name: cronIdentifier, expression: cron.schedule }
 
-      options.expiration = nextExecution.getTime() - Date.now()
-      channel.publish(
-        SCHEDULER_EXCHANGE,
-        schqPath(cronqPath(qPath(cron.queue))),
-        msg.content,
-        options,
+      const now = Date.now()
+      const nextExecutionTime = nextExecution.getTime()
+      options.expiration = nextExecutionTime - now
+
+      // lock publish
+      const canPublish = await lockMessage(
+        `publish:cron:${messageId}:${Math.floor(nextExecutionTime / 1000)}`,
+        cache,
       )
+
+      if (canPublish) {
+        channel.publish(
+          SCHEDULER_EXCHANGE,
+          schqPath(cronqPath(qPath(cron.queue))),
+          msg.content,
+          options,
+        )
+      }
     }
 
     // Handler execution
     try {
       await subscriber.onmessage(messageContent, baseInfo)
       channel.ack(msg)
+      await unlockMessage(messageId, cache)
     } catch (e) {
       const maxRetries = headers[MESSAGE_HEADERS.maxRetries] ?? globalMaxRetries
       const backoffOptions = headers[MESSAGE_HEADERS.backoffOptions]
@@ -92,21 +114,25 @@ export const processorHandler = (
         }
 
         const newAttempt = attempt + 1
-        channel.sendToQueue(queue, msg.content, {
-          ...msg.properties,
-          headers: { ...headers, 'x-attempt': newAttempt },
-        })
 
         subscriber.onerror(messageContent, e, {
           ...baseInfo,
           requeued: true,
           attempt: newAttempt,
         })
+
         channel.ack(msg)
+        await unlockMessage(messageId, cache)
+
+        channel.sendToQueue(queue, msg.content, {
+          ...msg.properties,
+          headers: { ...headers, 'x-attempt': newAttempt },
+        })
       } else {
+        subscriber.onerror(messageContent, e, { requeued: false, ...baseInfo })
         // Send to dead letters
         channel.nack(msg, false, false)
-        subscriber.onerror(messageContent, e, { requeued: false, ...baseInfo })
+        await unlockMessage(messageId, cache)
       }
     }
 

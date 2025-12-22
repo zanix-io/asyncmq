@@ -122,7 +122,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
       const fullQueuePath = qPath(queue)
       const cronQueue = cronqPath(fullQueuePath)
       const schedulerQueue = schqPath(cronQueue)
-      // Process the messages to rewrite them.
+      // Process the cron scheduled messages to rewrite them.
       await this.#connector.consumeAllMessages(schedulerQueue, {
         ...schedulerOpts,
         deadLetterRoutingKey: fullQueuePath,

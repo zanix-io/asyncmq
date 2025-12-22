@@ -5,11 +5,7 @@ export const SUBSCRIBERS_METADATA_KEY: Record<Execution, string> = {
   'extra-process': 'zanix:asyncmq-subscribers-out-of-process',
 }
 
-export const CRONS_METADATA_KEY: Record<Execution, string> = {
-  'main-process': 'zanix:asyncmq-crons-in-process',
-  'extra-process': 'zanix:asyncmq-crons-out-of-process',
-}
-
+export const CRONS_METADATA_KEY = 'zanix:asyncmq-cron-jobs'
 export const JOBS_METADATA_KEY = 'zanix:asyncmq-jobs'
 export const TASKS_METADATA_KEY = 'zanix:asyncmq-tasks'
 

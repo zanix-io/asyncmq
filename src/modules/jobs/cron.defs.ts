@@ -29,11 +29,9 @@ import { getRegisterBaseJobData } from './base.ts'
 export function registerCronJob<A extends MessageQueue, T>(
   job: CronJobDefinition<A, T>,
 ): void {
-  const { name, execution, jobDef } = getRegisterBaseJobData(job)
+  const { name, jobDef } = getRegisterBaseJobData(job)
 
-  const cronsMetaKey = CRONS_METADATA_KEY[execution]
-
-  const cronJobs = ProgramModule.registry.get<CronRegistry[]>(cronsMetaKey) || []
+  const cronJobs = ProgramModule.registry.get<CronRegistry[]>(CRONS_METADATA_KEY) || []
 
   const exist = cronJobs.find((registeredCron) => registeredCron[0] === name)
 
@@ -48,5 +46,5 @@ export function registerCronJob<A extends MessageQueue, T>(
 
   cronJobs.push([name, jobDef])
 
-  ProgramModule.registry.set(cronsMetaKey, cronJobs)
+  ProgramModule.registry.set(CRONS_METADATA_KEY, cronJobs)
 }

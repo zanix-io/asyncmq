@@ -4,7 +4,7 @@ import {
   targetInitializations,
   ZANIX_SERVER_MODULES,
 } from '@zanix/server'
-import { CRONS_METADATA_KEY, SUBSCRIBERS_METADATA_KEY } from 'utils/constants.ts'
+import { SUBSCRIBERS_METADATA_KEY } from 'utils/constants.ts'
 import { collectFiles, getRootDir } from '@zanix/helpers'
 import { join } from '@std/path'
 
@@ -34,10 +34,8 @@ const loadDependencies = async (
 
   // Remove unused data
   ProgramModule.registry.delete(SUBSCRIBERS_METADATA_KEY['main-process'])
-  ProgramModule.registry.delete(CRONS_METADATA_KEY['main-process'])
   if (isInternal) {
     ProgramModule.registry.delete(SUBSCRIBERS_METADATA_KEY['extra-process'])
-    ProgramModule.registry.delete(CRONS_METADATA_KEY['extra-process'])
   }
 
   dependenciesLoaded = true

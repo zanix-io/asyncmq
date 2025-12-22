@@ -5,6 +5,7 @@ import type { Options } from 'amqp'
 
 import { getStoragedQueueOptions, storageQueueOptions } from 'utils/queues.ts'
 import { processorHandler } from 'modules/subscribers/handler.ts'
+import type { CronRegistry } from 'typings/crons.ts'
 import {
   DEADLETTER_EXCHANGE,
   GLOBAL_EXCHANGE,
@@ -62,12 +63,13 @@ export async function setup(
     execution: Execution
     connector: ZanixRabbitMQConnector
     subscribers?: SubscriberMetadata[]
+    crons?: CronRegistry[]
     kvLocal: ZanixKVConnector
     cache: ZanixCacheProvider
     secret: string
   },
 ) {
-  const { subscribers, execution, kvLocal, cache, connector, secret } = options
+  const { subscribers, crons, execution, kvLocal, cache, connector, secret } = options
 
   const subscriberKey = SUBSCRIBERS_METADATA_KEY[execution]
 
@@ -203,6 +205,7 @@ export async function setup(
       await consumerChannel.consume(
         fullQueuePath,
         processorHandler(Subscriber, consumerChannel, {
+          crons,
           secret,
           execution,
           queue: fullQueuePath,

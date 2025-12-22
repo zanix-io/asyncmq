@@ -2,8 +2,8 @@ import type { Execution, IZanixSubscriber, MessageInfo, QueueOptions } from 'typ
 import type { CronRegistry } from 'typings/crons.ts'
 import type { Channel, ConsumeMessage } from 'amqp'
 
-import { cleanUpPipe, contextSettingPipe, type HandlerContext, ProgramModule } from '@zanix/server'
-import { CRONS_METADATA_KEY, MESSAGE_HEADERS, SCHEDULER_EXCHANGE } from 'utils/constants.ts'
+import { cleanUpPipe, contextSettingPipe, type HandlerContext } from '@zanix/server'
+import { MESSAGE_HEADERS, SCHEDULER_EXCHANGE } from 'utils/constants.ts'
 import { cronqPath, qPath, schqPath } from '../rabbitmq/provider/setup.ts'
 import { decode } from '../rabbitmq/provider/messages.ts'
 import { nextCronDate } from 'utils/cron.ts'
@@ -18,7 +18,8 @@ import { nextCronDate } from 'utils/cron.ts'
 export const processorHandler = (
   Subscriber: new (ctx: HandlerContext) => IZanixSubscriber,
   channel: Channel,
-  { queue, secret, execution = 'main-process', retries = {} }: {
+  { queue, secret, crons = [], retries = {} }: {
+    crons?: CronRegistry[]
     execution?: Execution
     queue: string
     retries?: QueueOptions['retryConfig']
@@ -34,9 +35,7 @@ export const processorHandler = (
     },
   } = retries
 
-  const crons = Object.fromEntries(
-    ProgramModule.registry.get<CronRegistry[]>(CRONS_METADATA_KEY[execution]) || [],
-  )
+  const cronEntries = Object.fromEntries(crons)
 
   return async (msg: ConsumeMessage | null) => {
     if (!msg) return
@@ -61,7 +60,7 @@ export const processorHandler = (
     const cronIdentifier = headers[MESSAGE_HEADERS.cronIdentifier]
 
     if (cronIdentifier) {
-      const cron = crons[cronIdentifier]
+      const cron = cronEntries[cronIdentifier]
       if (!cron?.isActive) return
 
       const options = { ...msg.properties, ...cron.settings }

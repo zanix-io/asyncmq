@@ -58,15 +58,15 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     this.#secret = Deno.env.get('DATA_AMQP_SECRET') || 'zanix_default_secret'
     this.#execution = Deno.env.get('ZANIX_WORKER_EXECUTION') as Execution || 'main-process'
     this.#connector = this.use<ZanixRabbitMQConnector>(false)
-
+    const crons = this.registry.get<CronRegistry[]>(CRONS_METADATA_KEY)
     this.#isConfigured = new Promise((resolve) =>
       queueMicrotask(() =>
-        this.#setup().then(() => {
+        this.#setup(crons).then(() => {
           resolve(true)
         })
       )
     )
-    queueMicrotask(() => this.#executeCrons())
+    queueMicrotask(() => this.#executeCrons(crons))
   }
 
   /**
@@ -83,7 +83,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    * It is invoked internally as part of the connector initialization workflow.
    * This method must complete before message publishing or consuming can occur.
    */
-  async #setup() {
+  async #setup(crons?: CronRegistry[]) {
     this.#notifierChannel = await this.#connector.createChannel()
     const subsMetaKey = SUBSCRIBERS_METADATA_KEY[this.#execution]
     const subscribers = this.registry.get<SubscriberMetadata[]>(
@@ -97,6 +97,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
       kvLocal: this.kvLocal,
       secret: this.#secret,
       subscribers,
+      crons,
     })
 
     // remove unused data
@@ -108,9 +109,12 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   /**
    * Execute crons
    */
-  async #executeCrons() {
-    const crons = this.registry.get<CronRegistry[]>(CRONS_METADATA_KEY[this.#execution])
+  async #executeCrons(crons?: CronRegistry[]) {
     if (!crons) return
+    if (this.#execution === 'extra-process') {
+      this.registry.delete(CRONS_METADATA_KEY)
+      return
+    }
 
     await this.#isConfigured
     const cronExecutionPromises = crons.map(async ([cron, options]) => {
@@ -135,8 +139,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     await Promise.all(cronExecutionPromises)
 
     // remove unused data
-    this.registry.delete(CRONS_METADATA_KEY['main-process'])
-    this.registry.delete(CRONS_METADATA_KEY['extra-process'])
+    this.registry.delete(CRONS_METADATA_KEY)
   }
 
   /**

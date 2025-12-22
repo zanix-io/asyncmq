@@ -212,6 +212,7 @@ export async function setup(
           queue: fullQueuePath,
           retries: retryConfig,
         }),
+        { noAck: false },
       )
     }))
   }

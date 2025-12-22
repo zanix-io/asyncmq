@@ -23,9 +23,9 @@ logger.success('External worker initialized...')
 
 // Preserve instance
 await new Promise<void>((resolve) => {
-  Deno.addSignalListener('SIGINT', () => {
+  Deno.addSignalListener('SIGINT', async () => {
     logger.info('Closing external worker...', 'noSave')
-
+    await closeAllConnections()
     resolve()
     Deno.exit(0)
   })

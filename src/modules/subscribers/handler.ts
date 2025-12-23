@@ -73,6 +73,7 @@ export const processorHandler = (
       const cron = cronEntries[cronIdentifier]
       if (!cron?.isActive) {
         channel.nack(msg, false, false)
+        await unlockMessage(messageId, cache)
         return
       }
 

@@ -72,7 +72,7 @@ export const processorHandler = (
     if (cronIdentifier) {
       const cron = cronEntries[cronIdentifier]
       if (!cron?.isActive) {
-        channel.nack(msg)
+        channel.nack(msg, false, false)
         return
       }
 

@@ -1,6 +1,6 @@
 {
   "name": "@zanix/asyncmq",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "compilerOptions": {
     "strict": true,
     "noImplicitAny": true

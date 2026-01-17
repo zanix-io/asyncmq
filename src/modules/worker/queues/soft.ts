@@ -21,9 +21,9 @@ const topic: FullProcessingQueue = 'zanix.worker.soft'
 export class SoftSubscriber extends ZanixSubscriber {
   public async onmessage(
     { $args, $taskId }: { $args: MessageQueue; $taskId: string },
-    { context }: MessageInfo,
+    { context, attempt }: MessageInfo,
   ) {
-    await processor({ taskId: $taskId, context, args: $args, queue: topic })
+    await processor({ taskId: $taskId, attempt, context, args: $args, queue: topic })
   }
 }
 

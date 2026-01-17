@@ -6,10 +6,11 @@ import { ProgramModule } from '@zanix/server'
 import { getTask } from 'utils/tasks.ts'
 
 export const processor = (options: ProcessorOptions) => {
-  const { taskId, queue, context, args } = options
+  const { taskId, queue, context, attempt, args } = options
 
   const task: Job<typeof args> = getTask(taskId, queue)
   context.queue = queue
+  context.attempt = attempt
 
   return task.call({
     providers: ProgramModule.getProviders(context.id),

@@ -9,7 +9,8 @@ export type TasksRegistry<
 
 export type ProcessorOptions = {
   taskId: string
-  context: HandlerContext & { queue?: string }
+  context: HandlerContext & { queue?: string; attempt?: number }
   args: MessageQueue
   queue: FullProcessingQueue
+  attempt: number
 }

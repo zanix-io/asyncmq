@@ -12,5 +12,5 @@ export type ProcessorOptions = {
   context: HandlerContext & { queue?: string; attempt?: number }
   args: MessageQueue
   queue: FullProcessingQueue
-  attempt: number
+  attempt?: number
 }

@@ -20,11 +20,11 @@ const topic: FullProcessingQueue = 'zanix.worker.moderate'
   },
 })
 export class ModerateSubscriber extends ZanixSubscriber {
-  public onmessage(
+  public async onmessage(
     { $args, $taskId }: { $args: MessageQueue; $taskId: string },
     { context }: MessageInfo,
   ) {
-    processor({ taskId: $taskId, context, args: $args, queue: topic })
+    await processor({ taskId: $taskId, context, args: $args, queue: topic })
   }
 }
 

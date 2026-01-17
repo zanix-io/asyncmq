@@ -16,11 +16,11 @@ const topic: FullProcessingQueue = 'zanix.worker.intensive'
   },
 })
 export class IntensiveSubscriber extends ZanixSubscriber {
-  public onmessage(
+  public async onmessage(
     { $args, $taskId }: { $args: MessageQueue; $taskId: string },
     { context }: MessageInfo,
   ) {
-    processor({ taskId: $taskId, context, args: $args, queue: topic })
+    await processor({ taskId: $taskId, context, args: $args, queue: topic })
   }
 }
 

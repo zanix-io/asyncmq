@@ -87,7 +87,7 @@ Deno.test({
 Deno.test({
   sanitizeOps: false,
   sanitizeResources: false,
-  name: 'ZanixRabbitMQ provider should works with deadletter',
+  name: 'ZanixRabbitMQ provider should send message to deadletter',
   fn: async () => {
     const queue = 'test-queue-deadletter'
     const provider = await registerProvider()
@@ -105,6 +105,39 @@ Deno.test({
 
     const { calls, errors } = await registerQueue(queue, {
       retryConfig: { maxRetries: 2, backoffStrategy: false },
+      callback: (info) => {
+        if (!info.requeuedFromDeadLetter) {
+          throw new Error()
+        }
+      },
+    })
+
+    assertEquals(calls, 4) // 1 attempt + 2 retries + 1 requeued
+    assertEquals(errors, 3) // 1 attempt + 2 retries
+  },
+})
+
+Deno.test({
+  sanitizeOps: false,
+  sanitizeResources: false,
+  name: 'ZanixRabbitMQ provider should send message to deadletter with delay',
+  fn: async () => {
+    const queue = 'test-queue-deadletter-back'
+    const provider = await registerProvider()
+
+    setTimeout(() => {
+      provider.enqueue(queue, { message: 'hello queue' }, {
+        isInternal: true,
+        contextId: '',
+      })
+    }, 100)
+
+    setTimeout(() => {
+      provider.requeueDeadLetters(queue)
+    }, 5000)
+
+    const { calls, errors } = await registerQueue(queue, {
+      retryConfig: { maxRetries: 2 },
       callback: (info) => {
         if (!info.requeuedFromDeadLetter) {
           throw new Error()

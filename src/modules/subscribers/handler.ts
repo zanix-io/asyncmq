@@ -112,10 +112,7 @@ export const processorHandler = (
       const backoffOptions = headers[MESSAGE_HEADERS.backoffOptions]
 
       if (attempt < maxRetries) {
-        if (backoffStrategy) {
-          const delay = backoffStrategy(attempt, backoffOptions)
-          await new Promise((res) => setTimeout(res, delay))
-        }
+        const delay = backoffStrategy ? backoffStrategy(attempt, backoffOptions) : 0
 
         const newAttempt = attempt + 1
 
@@ -126,12 +123,19 @@ export const processorHandler = (
         })
 
         channel.ack(msg)
+        if (delay) {
+          channel.sendToQueue(schqPath(queue), msg.content, {
+            ...msg.properties,
+            expiration: delay,
+            headers: { ...headers, 'x-attempt': newAttempt },
+          })
+        } else {
+          channel.sendToQueue(queue, msg.content, {
+            ...msg.properties,
+            headers: { ...headers, 'x-attempt': newAttempt },
+          })
+        }
         await unlockMessage(messageId, cache)
-
-        channel.sendToQueue(queue, msg.content, {
-          ...msg.properties,
-          headers: { ...headers, 'x-attempt': newAttempt },
-        })
       } else {
         subscriber.onerror(messageContent, e, { requeued: false, ...baseInfo })
         // Send to dead letters

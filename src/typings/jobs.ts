@@ -38,7 +38,7 @@ export type Job<A extends MessageQueue = MessageQueue, TResult = unknown> = (
     providers: ZanixProvidersGetter
     interactors: ZanixInteractorsGetter
     connectors: ZanixConnectorsGetter
-    context: HandlerContext & { queue?: string }
+    context: HandlerContext & { queue?: string; attempt?: number }
   },
   args: A,
 ) => Promise<TResult> | TResult

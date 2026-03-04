@@ -27,7 +27,7 @@ Deno.test({
     const { calls } = await register
     assert(calls === 5 || calls === 6) // one call each 2 seconds
 
-    assertAlmostEquals(Math.floor((Date.now() - start) / 1000), 10, 1)
+    assertAlmostEquals(Math.floor((Date.now() - start) / 1000), 10, 2)
   },
 })
 

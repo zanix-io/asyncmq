@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-03-04
+
+### Fixed
+
+- **Cron expression** fixed for cron schedule
+
 ## [0.3.4] - 2025-12-21
 
 ### Added

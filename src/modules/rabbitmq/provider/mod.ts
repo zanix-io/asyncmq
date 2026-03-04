@@ -128,10 +128,14 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
         deadLetterRoutingKey: fullQueuePath,
       })
       if (!isActive) return
+
+      const nextDate = await nextCronDate(schedule)
+      if (!nextDate) return
+
       await this.schedule(cronQueue, args || null, {
         contextId: generateUUID(),
         ...settings,
-        date: nextCronDate(schedule),
+        date: nextDate,
         messageId: cron,
         headers: { [MESSAGE_HEADERS.cronIdentifier]: cron },
       })

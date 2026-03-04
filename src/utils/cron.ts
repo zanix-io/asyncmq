@@ -3,6 +3,9 @@
 // Supports: *, ranges (a-b), lists (a,b,c), steps (*/n), a-b/n
 // -----------------------------------------------------------------------------
 
+import logger from '@zanix/logger'
+import { setImmediate } from 'node:timers'
+
 function parseField(field: string, min: number, max: number): Set<number> {
   const values = new Set<number>()
 
@@ -46,11 +49,10 @@ function parseField(field: string, min: number, max: number): Set<number> {
 // Main: Compute the next execution timestamp (ms) from a 6-field cron expression.
 // Fields: second minute hour day month weekday
 // -----------------------------------------------------------------------------
-
-export function nextCronDate(
+export async function nextCronDate(
   cronExpr: string,
   fromDate: Date = new Date(),
-): Date {
+): Promise<Date | undefined> {
   const [secF, minF, hourF, dayF, monthF, dowF] = cronExpr.trim().split(/\s+/)
 
   const seconds = parseField(secF, 0, 59)
@@ -60,12 +62,42 @@ export function nextCronDate(
   const months = parseField(monthF, 1, 12)
   const dows = parseField(dowF, 0, 6)
 
+  // 🔒 Basic validation
+  if (
+    !seconds.size ||
+    !minutes.size ||
+    !hours.size ||
+    !days.size ||
+    !months.size ||
+    !dows.size
+  ) {
+    logger.error('Invalid cron expression: empty field', cronExpr)
+    return
+  }
+
+  // ⚡ Pre-sorting (ANTES del loop)
+  const secArr = [...seconds].sort((a, b) => a - b)
+  const minArr = [...minutes].sort((a, b) => a - b)
+  const hourArr = [...hours].sort((a, b) => a - b)
+  const monthArr = [...months].sort((a, b) => a - b)
+
   const dayOfMonthIsWildcard = dayF === '*'
   const dayOfWeekIsWildcard = dowF === '*'
 
   const date = new Date(fromDate.getTime() + 1000)
 
-  while (true) {
+  const MAX_ITERATIONS = 500_000
+  const YIELD_EVERY = 10_000
+
+  let guard = 0
+
+  while (guard++ < MAX_ITERATIONS) {
+    // 🧠 No bloquear Node
+    if (guard % YIELD_EVERY === 0) {
+      // deno-lint-ignore no-await-in-loop
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+
     const y = date.getUTCFullYear()
     const mo = date.getUTCMonth() + 1
     const d = date.getUTCDate()
@@ -76,12 +108,9 @@ export function nextCronDate(
 
     // ----- MONTH -----
     if (!months.has(mo)) {
-      const sorted = [...months].sort((a, b) => a - b)
-      let next = sorted.find((v) => v > mo)
-
+      const next = monthArr.find((v) => v > mo)
       if (next === undefined) {
-        next = sorted[0]
-        date.setUTCFullYear(y + 1, next - 1, 1)
+        date.setUTCFullYear(y + 1, monthArr[0] - 1, 1)
       } else {
         date.setUTCFullYear(y, next - 1, 1)
       }
@@ -89,9 +118,17 @@ export function nextCronDate(
       continue
     }
 
+    // ----- VALIDAR día real del mes -----
+    const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate()
+    if (d > daysInMonth) {
+      date.setUTCDate(1)
+      date.setUTCMonth(mo)
+      date.setUTCHours(0, 0, 0, 0)
+      continue
+    }
+
     // ----- DAY (cron OR rule) -----
     let dayMatch = false
-
     if (!dayOfMonthIsWildcard && days.has(d)) dayMatch = true
     if (!dayOfWeekIsWildcard && dows.has(dow)) dayMatch = true
     if (dayOfMonthIsWildcard && dayOfWeekIsWildcard) dayMatch = true
@@ -104,25 +141,21 @@ export function nextCronDate(
 
     // ----- HOUR -----
     if (!hours.has(h)) {
-      const sorted = [...hours].sort((a, b) => a - b)
-      let next = sorted.find((v) => v > h)
-
+      const next = hourArr.find((v) => v > h)
       if (next === undefined) {
-        next = sorted[0]
         date.setUTCDate(d + 1)
+        date.setUTCHours(hourArr[0], 0, 0, 0)
+      } else {
+        date.setUTCHours(next, 0, 0, 0)
       }
-      date.setUTCHours(next, 0, 0, 0)
       continue
     }
 
     // ----- MINUTE -----
     if (!minutes.has(mi)) {
-      const sorted = [...minutes].sort((a, b) => a - b)
-      let next = sorted.find((v) => v > mi)
-
+      const next = minArr.find((v) => v > mi)
       if (next === undefined) {
-        next = sorted[0]
-        date.setUTCHours(h + 1, next, 0, 0)
+        date.setUTCHours(h + 1, minArr[0], 0, 0)
       } else {
         date.setUTCMinutes(next, 0, 0)
       }
@@ -131,12 +164,9 @@ export function nextCronDate(
 
     // ----- SECOND -----
     if (!seconds.has(s)) {
-      const sorted = [...seconds].sort((a, b) => a - b)
-      let next = sorted.find((v) => v > s)
-
+      const next = secArr.find((v) => v > s)
       if (next === undefined) {
-        next = sorted[0]
-        date.setUTCMinutes(mi + 1, next, 0)
+        date.setUTCMinutes(mi + 1, secArr[0], 0)
       } else {
         date.setUTCSeconds(next, 0)
       }
@@ -145,4 +175,6 @@ export function nextCronDate(
 
     return date
   }
+
+  logger.error('Invalid cron expression: not supported', cronExpr)
 }

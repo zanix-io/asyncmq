@@ -79,7 +79,8 @@ export const processorHandler = (
 
       const options = { ...msg.properties, ...cron.settings }
 
-      const nextExecution = nextCronDate(cron.schedule)
+      const nextExecution = await nextCronDate(cron.schedule)
+      if (!nextExecution) return
       baseInfo.cron = { nextExecution, name: cronIdentifier, expression: cron.schedule }
 
       const now = Date.now()

@@ -1,7 +1,7 @@
 import type { MessageInfo, QueueOptions } from 'typings/queues.ts'
 
 import { ZanixCoreAsyncMQProvider } from 'modules/rabbitmq/provider/mod.ts'
-import { Interactor, ZanixInteractor } from '@zanix/server'
+import { Interactor, targetInitializations, ZanixInteractor } from '@zanix/server'
 import { Subscriber } from 'modules/subscribers/decorators/base.ts'
 import { ZanixSubscriber } from 'modules/subscribers/base.ts'
 
@@ -16,8 +16,11 @@ console.warn = () => {}
 const dependencies = async () => {
   Deno.env.set('AMQP_URI', 'amqp://guest:guest@localhost:5672/')
 
-  await import('jsr:@zanix/datamaster@0.x/core')
+  await import('jsr:@zanix/datamaster@0.5.*/core')
   await import('../../modules/rabbitmq/defs.ts')
+
+  await targetInitializations('onSetup')
+  await targetInitializations('onBoot')
 }
 
 export const registerProvider = async () => {
@@ -77,7 +80,7 @@ export const registerQueue = async (
 }
 
 export const childSpawn = async (id: string) => {
-  const file = join(dirname(import.meta.url), '../../modules/worker/e-process.ts')
+  const file = join(dirname(import.meta.url), 'jobs/worker-process.fixture.ts')
 
   const command = new Deno.Command('deno', {
     args: ['run', '-A', file],

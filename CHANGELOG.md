@@ -7,6 +7,40 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `setTaskerUrl(url)` (from `@zanix/asyncmq/worker`): registers the bootstrap module a spawned
+  Worker thread runs when `ZanixCoreWorkerProvider.runTask` dispatches a job locally (the no-AMQP
+  fallback). AsyncMQ ships no built-in one anymore — the caller (typically `@zanix/core`) must
+  provide it. Without a registered tasker URL, `runTask` logs a clear error and returns `false`
+  instead of failing silently.
+- `registerInternalProcess()`: marks the current process as AsyncMQ's internal worker thread
+  (`ZANIX_WORKER_EXECUTION=internal-process`), so callers don't need to know the literal env var
+  contract.
+- `baseProcessor` and the `ProcessorOptions`/`FullProcessingQueue`/`ProcessingQueues` types, now
+  re-exported from `@zanix/asyncmq/worker` for anyone building a custom tasker bootstrap module.
+
+### Changed
+
+- **Breaking**: `src/modules/worker/e-process.ts` (the standalone worker runnable script) and
+  `i-process.ts`/`dependencies.ts` (the internal-process worker-thread bootstrap) were removed.
+  `@zanix/asyncmq/worker` is now a library of bootstrap building blocks
+  (`registerExtraProcessQueues`, `setTaskerUrl`, `workerFileTypes`, etc.), not a runnable script —
+  running a standalone worker now means bootstrapping through `@zanix/core`'s `Zanix.startWorker()`,
+  which wires all of this up automatically. See the README's "Running the Worker" section for the
+  manual/standalone pattern.
+- `nextCronDate` (cron expression parsing) moved to `@zanix/utils`'s helpers — it's generic
+  date/schedule math with no AsyncMQ-specific dependency. Import it from `@zanix/helpers` if you
+  need it directly; internal usages (`subscribers/handler.ts`, `rabbitmq/provider/mod.ts`) were
+  updated accordingly.
+- Removed the `@zanix/datamaster` dependency entirely — AsyncMQ no longer imports datamaster or
+  notifications directly; that integration glue now lives in `@zanix/core`.
+- Bumped `@zanix/server` to `2.*` and `@zanix/utils`-derived dependencies (`@zanix/helpers`,
+  `@zanix/logger`, `@zanix/errors`, `@zanix/workers`, `@zanix/typings`, `@zanix/validator`) to
+  `2.3.x`.
+- README rewritten: no more standalone-worker-script instructions, the `setTaskerUrl` contract is
+  documented, and a note recommends `@zanix/core` as the entrypoint for full applications.
+
 ## [0.3.12] - 2026-03-04
 
 ### Fixed

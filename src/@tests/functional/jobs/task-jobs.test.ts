@@ -5,6 +5,7 @@ import { assert, assertEquals } from '@std/assert'
 import { registerJob } from 'modules/jobs/task.defs.ts'
 import { stub } from '@std/testing/mock'
 import { ProgramModule } from '@zanix/server'
+import { setTaskerUrl } from 'modules/worker/mod.ts'
 
 Deno.test({
   sanitizeOps: false,
@@ -44,7 +45,9 @@ Deno.test({
   name: 'Task Jobs should works',
   fn: async () => {
     Deno.env.set('AMQP_URI', 'amqp://guest:guest@localhost:5672/')
-    await import('modules/worker/i-process.ts')
+    await import('modules/core.ts')
+    await import('./job.defs.ts')
+    setTaskerUrl(new URL('./internal-process.fixture.ts', import.meta.url).href)
 
     const worker = ProgramModule.getProviders().get<ZanixCoreWorkerProvider>('worker')
 

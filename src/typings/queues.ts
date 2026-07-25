@@ -214,4 +214,8 @@ export type SubscriberDecoratorOptions = {
  */
 export type ProcessingQueues = 'soft' | 'moderate' | 'intensive'
 
+/**
+ * The fully-qualified local queue name a job's {@link ProcessingQueues} tier maps to — the key
+ * `ZanixCoreWorkerProvider.runTask`'s local Web Worker queues are registered under.
+ */
 export type FullProcessingQueue = `zanix.worker.${ProcessingQueues}`

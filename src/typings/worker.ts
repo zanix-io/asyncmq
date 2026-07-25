@@ -7,6 +7,10 @@ export type TasksRegistry<
   T = unknown,
 > = Record<string, Job<A, T>>
 
+/**
+ * Options passed to the worker-thread `processor` function to execute a single registered task
+ * inside the internal-process worker thread `ZanixCoreWorkerProvider.runTask` spawns.
+ */
 export type ProcessorOptions = {
   taskId: string
   context: HandlerContext & { queue?: string; attempt?: number }

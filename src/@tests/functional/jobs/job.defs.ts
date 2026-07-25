@@ -22,6 +22,7 @@ registerJob({
   args: { message: 'hello local intensive queue' },
   processingQueue: 'intensive',
   handler: async function (args: { message: string }) {
+    this.providers.get('cache')['kvLocal'] // this should not throw
     if (Deno.env.get('id') !== 'my-intensive-job') return
     // this should not throw
     this.providers.get('cache')['kvLocal']

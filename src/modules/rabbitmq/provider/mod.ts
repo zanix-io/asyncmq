@@ -28,7 +28,7 @@ import {
 import { decode, encode, prepareOptions } from './messages.ts'
 import { ApplicationError } from '@zanix/errors'
 import { generateUUID } from '@zanix/helpers'
-import { nextCronDate } from 'utils/cron.ts'
+import { nextCronDate } from '@zanix/helpers'
 
 /**
  * ZanixAsyncMQProvider is a provider class responsible for managing

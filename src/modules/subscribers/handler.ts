@@ -12,7 +12,7 @@ import { MESSAGE_HEADERS, SCHEDULER_EXCHANGE } from 'utils/constants.ts'
 import { cronqPath, qPath, schqPath } from '../rabbitmq/provider/setup.ts'
 import { lockMessage, unlockMessage } from 'utils/queues.ts'
 import { decode } from '../rabbitmq/provider/messages.ts'
-import { nextCronDate } from 'utils/cron.ts'
+import { nextCronDate } from '@zanix/helpers'
 
 /**
  * Creates a message processor for a specific subscriber and queue.

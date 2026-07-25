@@ -8,6 +8,7 @@ export const SUBSCRIBERS_METADATA_KEY: Record<Execution, string> = {
 export const CRONS_METADATA_KEY = 'zanix:asyncmq-cron-jobs'
 export const JOBS_METADATA_KEY = 'zanix:asyncmq-jobs'
 export const TASKS_METADATA_KEY = 'zanix:asyncmq-tasks'
+export const TASKER_URL_METADATA_KEY = 'zanix:asyncmq-tasker-url'
 
 export const GLOBAL_EXCHANGE = 'zanix.amqp'
 export const DEADLETTER_EXCHANGE = 'zanix.amqp.dlx'

@@ -11,14 +11,11 @@ import type { JobRegistry } from 'typings/jobs.ts'
 import type { WorkerManager } from '@zanix/workers'
 import { intensiveLocalQueue } from './queues/intensive.ts'
 import { moderateLocalQueue } from './queues/moderate.ts'
-import { JOBS_METADATA_KEY } from 'utils/constants.ts'
+import { JOBS_METADATA_KEY, TASKER_URL_METADATA_KEY } from 'utils/constants.ts'
 import { softLocalQueue } from './queues/soft.ts'
 import { prepareContext } from 'utils/context.ts'
 import { processor } from './queues/base.ts'
 import logger from '@zanix/logger'
-import { join } from '@std/path'
-
-const taskerUrl = join(import.meta.url, '../i-process.ts')
 
 const localQueues: Record<FullProcessingQueue, () => WorkerManager> = {
   'zanix.worker.soft': softLocalQueue,
@@ -219,6 +216,22 @@ export class ZanixCoreWorkerProvider extends ZanixWorkerProvider {
             ...metaError,
             suggestion:
               'Ensure you provide the `processingQueue` property when calling `registerJob`.',
+          },
+        },
+      )
+      return false
+    }
+
+    const taskerUrl = this.registry.get<string>(TASKER_URL_METADATA_KEY)
+
+    if (!taskerUrl) {
+      logger.error(
+        'Task execution is not available: no internal worker tasker URL has been registered.',
+        {
+          meta: {
+            ...metaError,
+            suggestion:
+              'Call `setTaskerUrl(url)` once at startup, pointing to your internal-process entrypoint (see `initWorkerEntrypoint`) — before calling `runTask`.',
           },
         },
       )

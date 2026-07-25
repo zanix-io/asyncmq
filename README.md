@@ -8,18 +8,18 @@
 
 ## 🧭 Table of Contents
 
-- [🧩 Description](#🧩-description)
-- [⚙️ Features](#⚙️-features)
-- [📦 Installation](#📦-installation)
-- [🚀 Basic Usage](#🚀-basic-usage)
-- [📡 Queue Handlers](#📡-queue-handlers)
-- [🌐 Environment Variables](#🌐-environment-variables)
-- [🔐 Encryption](#🔐-encryption)
-- [⚙️ Connector Auto-Loading](#⚙️-connector-auto-loading)
-- [🤝 Contributing](#🤝-contributing)
-- [🕒 Changelog](#🕒-changelog)
-- [⚖️ License](#⚖️-license)
-- [🔗 Resources](#🔗-resources)
+1. [Description](#-description)
+2. [Features](#-features)
+3. [Installation](#-installation)
+4. [Basic Usage](#-basic-usage)
+5. [Queue Handlers](#-queue-handlers)
+6. [Environment Variables](#-environment-variables)
+7. [Encryption](#-encryption)
+8. [Connector Auto-Loading](#-connector-auto-loading)
+9. [Contributing](#-contributing)
+10. [Changelog](#-changelog)
+11. [License](#-license)
+12. [Resources](#-resources)
 
 ---
 
@@ -40,9 +40,15 @@ This module enables:
 
 Designed for event-driven architectures, background jobs, pipelines, and microservices.
 
+> 💡 If you're building a full application, the recommended entrypoint is
+> **[`@zanix/core`](https://jsr.io/@zanix/core)**, which wires this package together with
+> `@zanix/datamaster`, `@zanix/auth`, and `@zanix/notifications` automatically via
+> `Zanix.start()`/`Zanix.startWorker()`. Depend on `@zanix/asyncmq` directly when you need its
+> queue/job primitives standalone, or low-level control over the worker bootstrap.
+
 ---
 
-## ⚙️ Features
+## ✨ Features
 
 ### **RabbitMQ Connector**
 
@@ -449,6 +455,13 @@ worker.runTask('my-moderate-task', {
 })
 ```
 
+> ⚠️ `runTask` dispatches to a real internal worker thread, whose bootstrap module must be
+> registered beforehand via `setTaskerUrl` (exported from `@zanix/asyncmq/worker`) — otherwise it
+> logs an error and returns `false` instead of running the task. If your app bootstraps through
+> `@zanix/core`, this is handled for you automatically; see
+> [Running the Worker](#7-running-the-worker) below for what's required when using AsyncMQ
+> standalone.
+
 ---
 
 ### 6. Executing Generic Tasks
@@ -487,20 +500,37 @@ This is ideal for:
 
 ### 7. Running the Worker
 
-To process **predefined AMQP queues** or **custom extra-process queues**, run the external worker:
+To process **predefined AMQP queues** or **custom extra-process queues**, you need a running worker
+process. `@zanix/asyncmq/worker` is a library of bootstrap building blocks
+(`registerExtraProcessQueues`, `setTaskerUrl`, `workerFileTypes`, etc.) — it is **not** a runnable
+script by itself.
 
-```bash
-deno run -A @zanix/asyncmq/worker
+If your app is built through `@zanix/core` (the recommended entrypoint — see
+[Description](#-description)), it already wires all of this up for you:
+
+```ts
+// worker.ts
+import Zanix from '@zanix/core'
+
+Zanix.startWorker()
 ```
 
-This script:
+```bash
+deno run -A worker.ts
+```
 
-- Initializes the AMQP queues.
-- Processes distributed jobs.
-- Listens and executes tasks published to extra-process queues.
+`Zanix.startWorker()` registers AsyncMQ's extra-process queues, registers `@zanix/core`'s own
+internal-process bootstrap module as AsyncMQ's tasker URL (so `runTask`'s local fallback works
+correctly), loads your project's own connectors/handlers/defs, and keeps the process alive.
+
+Building a standalone worker without `@zanix/core` is possible but manual: call
+`registerExtraProcessQueues()` yourself, load your own project files, and — if you use
+`runTask`/internal tasks — call `setTaskerUrl` with a bootstrap module of your own that at least
+re-runs your job registrations inside the spawned thread.
 
 > ⚠️ Internal queues (`soft`, `moderate`, `intensive`) for **local tasks** **do not require** the
-> external worker and run automatically in the `internal-process` context.
+> external worker and run automatically in the `internal-process` context — but they do require
+> `setTaskerUrl` to have been registered (see above).
 
 ---
 
@@ -551,7 +581,7 @@ Perfect for:
 
 ---
 
-## ⚙️ Connector Auto-Loading
+## 🚀 Connector Auto-Loading
 
 This module includes core auto-registration logic:
 
@@ -586,7 +616,7 @@ See [`CHANGELOG`](./CHANGELOG.md) for version history.
 
 ---
 
-## ⚖️ License
+## 📜 License
 
 Licensed under the **MIT License**. See the [`LICENSE`](./LICENSE) file for details.
 

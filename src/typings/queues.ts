@@ -6,13 +6,21 @@ import type {
 } from '@zanix/server'
 import type { BaseRTO } from '@zanix/validator'
 
-interface AssertQueue {
+/** Queue-declaration options forwarded to the underlying AMQP `assertQueue` call. */
+export interface AssertQueue {
+  /** Whether the queue can only be used by the connection that declared it. */
   exclusive?: boolean
+  /** Whether the queue survives a broker restart. */
   durable?: boolean
+  /** Whether the queue is deleted once its last consumer disconnects. */
   autoDelete?: boolean
+  /** Extra broker-specific arguments (e.g. dead-letter exchange/routing key). */
   arguments?: Record<string, unknown>
+  /** Time-to-live for messages in the queue, in milliseconds. */
   messageTtl?: number
+  /** Time after which the queue is deleted if unused, in milliseconds. */
   expires?: number
+  /** Maximum number of messages the queue can hold. */
   maxLength?: number
 }
 
@@ -76,12 +84,18 @@ export type ErrorInfo = {
   requeued: boolean
 } & MessageInfo
 
+/**
+ * Shape implemented by `ZanixSubscriber` subclasses: the lifecycle methods invoked when a
+ * queue message is received or fails processing.
+ */
 export interface IZanixSubscriber {
+  /** Invoked with the decoded message payload when a queue message is received. */
   onmessage: (
     // deno-lint-ignore no-explicit-any
     message: any,
     info: MessageInfo,
   ) => void | Promise<void>
+  /** Invoked when processing the message throws or the configured `rto` fails validation. */
   onerror: (
     // deno-lint-ignore no-explicit-any
     message: any,
@@ -193,6 +207,7 @@ export type QueueConfig =
     topic: string
   }
 
+/** Options accepted by the `@Subscriber` class decorator. */
 export type SubscriberDecoratorOptions = {
   /** Rto to validate queue event data on message (Body) and request search or params */
   rto?: new (ctx?: unknown) => BaseRTO

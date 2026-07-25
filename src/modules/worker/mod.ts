@@ -1,3 +1,13 @@
+/**
+ * `@zanix/asyncmq/worker` — bootstrap building blocks for a worker process: marking the current
+ * process's execution mode (internal-process worker thread vs. standalone extra-process worker),
+ * the shared target-initialization lifecycle (`initWorkerEntrypoint`), and the task processor
+ * (`baseProcessor`) a custom entrypoint re-exports. This module is a library, not a runnable
+ * script — see the main package's README for how to wire it into an actual entrypoint file.
+ *
+ * @module
+ */
+
 import {
   cleanupInitializationsMetadata,
   ProgramModule,

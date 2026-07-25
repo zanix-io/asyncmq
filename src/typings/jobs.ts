@@ -11,25 +11,21 @@ import type { ProcessingQueues } from './queues.ts'
 /**
  * Represents a job execution function.
  *
- * A job receives a context as its first argument,
- * followed by a variable list of arguments defined by the job itself.
+ * Invoked with `this` bound to the execution context (`providers`, `connectors`, `interactors`,
+ * and `context`) and a single `args` value carrying whatever the job/task itself defines.
  *
  * Jobs may be synchronous or asynchronous.
  *
  * @template A
- * Tuple representing the arguments accepted by the job.
+ * Type of the single `args` value passed to the job.
  *
  * @template TResult
  * The result returned by the job execution.
  *
  * @example
  * ```ts
- * const sendEmail: Job<[string, string], void> = async (
- *   { providers },
- *   to,
- *   body,
- * ) => {
- *   await providers.email.send({ to, body })
+ * const sendEmail: Job<{ to: string; body: string }> = async function (args) {
+ *   await this.providers.get('email').send(args)
  * }
  * ```
  */
@@ -119,6 +115,7 @@ export type JobProcess<A extends MessageQueue = MessageQueue, T = unknown> =
     customQueue?: never
   }
 
+/** Fields shared by every job/task definition, regardless of how it's published/executed. */
 export type BaseJob<A extends MessageQueue = MessageQueue> = {
   /**
    * Unique identifier for the job.

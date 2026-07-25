@@ -22,7 +22,7 @@ import { getRegisterBaseJobData } from './base.ts'
  *   name: 'minuteJob',
  *   isActive: true,
  *   args: 'argumentValue',
- *   queue: 'taskQueue',
+ *   customQueue: 'taskQueue',
  *   schedule: '0 *\/1 * * * *',  // every minute
  * });
  */

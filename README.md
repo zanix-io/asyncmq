@@ -13,13 +13,15 @@
 3. [Installation](#-installation)
 4. [Basic Usage](#-basic-usage)
 5. [Queue Handlers](#-queue-handlers)
-6. [Environment Variables](#-environment-variables)
-7. [Encryption](#-encryption)
-8. [Connector Auto-Loading](#-connector-auto-loading)
-9. [Contributing](#-contributing)
-10. [Changelog](#-changelog)
-11. [License](#-license)
-12. [Resources](#-resources)
+6. [Worker & Task Execution](#-worker--task-execution)
+7. [Environment Variables](#-environment-variables)
+8. [Encryption](#-encryption)
+9. [Connector Auto-Loading](#-connector-auto-loading)
+10. [Documentation](#-documentation)
+11. [Contributing](#-contributing)
+12. [Changelog](#-changelog)
+13. [License](#-license)
+14. [Resources](#-resources)
 
 ---
 
@@ -81,9 +83,9 @@ Responsible for:
 
 ---
 
-### **Queue Decorator**
+### **Subscriber Decorator**
 
-`@Queue(options | route)`
+`@Subscriber(options | route)`
 
 Registers a class as a queue handler.
 
@@ -97,9 +99,9 @@ Supports:
 
 ---
 
-### **Queue Handler Base Class**
+### **Subscriber Handler Base Class**
 
-**`ZanixQueue<Interactor>`**
+**`ZanixSubscriber<Interactor>`**
 
 An abstract class used to define asynchronous queue processors.
 
@@ -121,7 +123,7 @@ import * as asyncmq from 'jsr:@zanix/asyncmq@[version]'
 Import individual components:
 
 ```ts
-import { Queue, ZanixQueue, ZanixRabbitMQConnector } from 'jsr:@zanix/asyncmq@[version]'
+import { Subscriber, ZanixRabbitMQConnector, ZanixSubscriber } from 'jsr:@zanix/asyncmq@[version]'
 ```
 
 Check for latest versions at: [https://jsr.io/@zanix/asyncmq](https://jsr.io/@zanix/asyncmq)
@@ -147,6 +149,8 @@ class EmailInteractor extends ZanixInteractor {
 ### 2. Create a DTO for validation
 
 ```ts
+import { BaseRTO, IsString } from '@zanix/validator'
+
 class EmailRto extends BaseRTO {
   @IsString({ expose: true })
   accessor email!: string
@@ -155,18 +159,19 @@ class EmailRto extends BaseRTO {
 
 ---
 
-### 3. Create a Queue Handler
+### 3. Create a Subscriber Handler
 
 ```ts
-import { Queue, ZanixQueue } from 'jsr:@zanix/asyncmq@latest'
+import { Subscriber, ZanixSubscriber } from 'jsr:@zanix/asyncmq@latest'
+import type { MessageInfo } from 'jsr:@zanix/asyncmq@latest'
 
-@Queue({
+@Subscriber({
   queue: 'email.send',
   Interactor: EmailInteractor,
   rto: EmailRto, // validate incoming message
 })
-class EmailQueue extends ZanixQueue<EmailInteractor> {
-  async onmessage(data: { email: string }, info: any) {
+class EmailSubscriber extends ZanixSubscriber<EmailInteractor> {
+  async onmessage(data: { email: string }, info: MessageInfo) {
     await this.interactor.send(data.email)
   }
 }
@@ -176,163 +181,38 @@ class EmailQueue extends ZanixQueue<EmailInteractor> {
 
 ### 4. Enqueue or Publish a message
 
-```ts
-const asyncmq = server.getProvider('asyncmq')
+From inside an Interactor (or any class extending `@zanix/server`'s `CoreBaseClass`), the provider
+is already available as `this.asyncmq` — that's the idiomatic way to reach it in practice. Outside a
+Zanix-managed class, reach it through `ProgramModule` instead:
 
-await asyncmq.enqueue('email.send', { email: 'user@example.com', isInternal: true, contextId: '' })
+```ts
+import { ProgramModule } from '@zanix/server'
+import type { ZanixCoreAsyncMQProvider } from 'jsr:@zanix/asyncmq@latest'
+
+const asyncmq = ProgramModule.providers.get<ZanixCoreAsyncMQProvider>('asyncmq')
+
+await asyncmq.enqueue('email.send', { email: 'user@example.com' }, {
+  isInternal: true,
+  contextId: '',
+})
 await asyncmq.sendMessage('*', { message: 'hello queue' }, { contextId: '' }) // all queues
 ```
 
 ---
 
-### 5. ⏰ Message Scheduling & Cron Jobs
+### 5. Message Scheduling & Cron Jobs
 
-Zanix AsyncMQ provides **first-class support for delayed messages and recurring jobs**, allowing you
-to schedule messages for future execution or define cron-based tasks using a simple DSL.
-
-This enables:
-
-- Delayed background jobs
-- Time-based workflows
-- Periodic tasks (cron jobs)
-- Event replays and retries
-
----
-
-#### 🕒 Scheduling a Message
-
-You can schedule a message to be delivered **at a specific date** or **after a delay** using the
-provider’s `schedule` method.
-
-##### Example: Schedule by Delay
+Zanix AsyncMQ provides **first-class support for delayed messages and recurring jobs**: schedule a
+message for future delivery via the provider's `schedule` method, or register a recurring job with
+`registerCronJob` using a cron DSL. Both are encrypted, persisted, and integrate with the same
+retry/DLQ system as regular messages.
 
 ```ts
-const asyncmq = server.getProvider('asyncmq')
-
-await asyncmq.schedule(
-  'email.send',
-  { email: 'user@example.com' },
-  {
-    delay: 60_000, // 1 minute
-    isInternal: true,
-  },
-)
+await asyncmq.schedule('email.send', { email: 'user@example.com' }, { delay: 60_000 }) // 1 minute
 ```
 
-##### Example: Schedule by Date
-
-```ts
-await asyncmq.schedule(
-  'email.send',
-  { email: 'user@example.com' },
-  {
-    date: new Date('2025-01-01T10:00:00Z'),
-    isInternal: true,
-  },
-)
-```
-
-##### Scheduling Options
-
-| Option       | Type                  | Description                                                            |
-| ------------ | --------------------- | ---------------------------------------------------------------------- |
-| `date`       | `Date`                | Absolute date when the message should be delivered. Overrides `delay`. |
-| `delay`      | `number`              | Delay in milliseconds before delivery (default: `0`).                  |
-| `isInternal` | `boolean`             | Resolves the queue using the internal queue path mechanism.            |
-| `...options` | `QueueMessageOptions` | Standard queue publishing options (except expiration).                 |
-
-All scheduled messages are **encrypted**, **persisted**, and delivered exactly once at execution
-time.
-
----
-
-### 6. 📅 Cron Jobs (Recurring Tasks)
-
-AsyncMQ supports **cron-based recurring jobs** using a **Domain-Specific Language (DSL)**.
-
-Cron jobs are registered at startup and automatically scheduled by the provider.
-
----
-
-#### Registering a Cron Job
-
-```ts
-import { registerCronJob } from 'jsr:@zanix/asyncmq@latest'
-
-registerCronJob({
-  name: 'minuteJob',
-  isActive: true,
-  queue: 'taskQueue',
-  args: { foo: 'bar' },
-  schedule: '0 */1 * * * *', // every minute
-})
-```
-
-##### Cron Job Definition
-
-| Field      | Type      | Description                                    |
-| ---------- | --------- | ---------------------------------------------- |
-| `name`     | `string`  | Unique name of the cron job.                   |
-| `isActive` | `boolean` | Enables or disables the cron job.              |
-| `queue`    | `string`  | Target queue where messages will be published. |
-| `args`     | `any`     | Payload sent to the queue on each execution.   |
-| `schedule` | `string`  | Cron expression (seconds precision supported). |
-| `settings` | `string`  | Optional `QueueMessageOptions`.                |
-
----
-
-#### Cron Execution Metadata
-
-When a message is executed by a cron job, the queue handler receives additional metadata in the
-`info` object:
-
-```ts
-async onmessage(data: any, info: MessageInfo) {
-  console.log(info.cron)
-}
-```
-
-```ts
-info.cron = {
-  name: 'minuteJob',
-  expression: '0 */1 * * * *',
-  nextExecution: Date,
-}
-```
-
-This allows handlers to:
-
-- Identify cron-triggered executions
-- Access scheduling metadata.
-- Implement custom logic for recurring jobs
-
----
-
-#### ♻️ Error Handling & Retries
-
-Cron jobs and scheduled messages integrate seamlessly with AsyncMQ’s retry system:
-
-- Failed executions follow the same retry rules as normal messages
-- Messages may be requeued or routed to DLQ
-- `onError` handlers receive full scheduling metadata
-
-```ts
-async onerror(error: Error, info: ErrorInfo) {
-  console.log('Requeued:', info.requeued)
-  console.log('Cron job:', info.cron?.name)
-}
-```
-
----
-
-#### ✅ Use Cases
-
-- Periodic cleanup jobs
-- Daily reports
-- Subscription renewals
-- Scheduled notifications
-- Background synchronization
-- Deferred workflows
+See **[Message Scheduling & Cron Jobs](./docs/scheduling-and-cron.md)** for the full reference
+(scheduling options, cron job definition, execution metadata, retries, use cases).
 
 ---
 
@@ -359,199 +239,24 @@ Invalid payloads are logged and routed to DLQ.
 
 ## 🛠 Worker & Task Execution
 
-Zanix AsyncMQ allows executing **distributed jobs** and **internal tasks** via its **Worker
-Provider**, using different types of queues depending on the workload.
-
----
-
-### 1. Jobs vs Tasks
-
-| Type     | Executed on                                                               | Persistence             | Recommended use                                  |
-| -------- | ------------------------------------------------------------------------- | ----------------------- | ------------------------------------------------ |
-| **Job**  | Predefined AMQP queues (`soft`, `moderate`, `intensive`) or custom queues | Durable and distributed | Critical processes, retryable, shared queues     |
-| **Task** | Internal queues (`soft`, `moderate`, `intensive`)                         | Ephemeral               | Quick execution, local tasks without persistence |
-
-> ⚠️ Predefined AMQP queues **always run in `extra-process`**, so it is necessary to run the
-> external worker (`@zanix/asyncmq/worker`) to process them. Internal tasks use the `soft`,
-> `moderate`, or `intensive` queues and **do not require an external worker**, as they run in an
-> **internal-process** context.
-
----
-
-### 2. Predefined Queues
-
-| Queue       | Type                    | Execution        | Description                  |
-| ----------- | ----------------------- | ---------------- | ---------------------------- |
-| `soft`      | Internal task           | internal-process | Light local tasks, ephemeral |
-| `moderate`  | Internal task           | internal-process | Medium load local tasks      |
-| `intensive` | Internal task           | internal-process | Heavy local tasks            |
-| `soft`      | Predefined AMQP for job | extra-process    | Lightweight distributed jobs |
-| `moderate`  | Predefined AMQP for job | extra-process    | Medium load distributed jobs |
-| `intensive` | Predefined AMQP for job | extra-process    | Heavy distributed jobs       |
-
----
-
-### 3. Jobs and Cron Jobs Examples
+Zanix AsyncMQ executes **distributed jobs** (durable, via predefined `soft`/`moderate`/`intensive`
+AMQP queues or a custom queue) and **internal tasks** (ephemeral, via the same predefined queues but
+run locally) through its **Worker Provider**.
 
 ```ts
-import { registerJob } from 'modules/jobs/task.defs.ts'
-import { registerCronJob } from 'modules/jobs/cron.defs.ts'
+import { ProgramModule } from '@zanix/server'
+import type { ZanixCoreWorkerProvider } from 'jsr:@zanix/asyncmq@latest'
 
-// Distributed job in a custom AMQP queue
-registerJob({
-  name: 'my-custom-job',
-  args: { message: 'hello custom queue' },
-  customQueue: 'extra-process-queue', // runs in extra-process custom queue
-})
+const worker = ProgramModule.providers.get<ZanixCoreWorkerProvider>('worker')
 
-// Internal task in the moderate queue
-registerJob({
-  name: 'my-moderate-task',
-  args: { message: 'hello local moderate queue' },
-  processingQueue: 'moderate', // internal-process
-  handler: function (args: { message: string }) {
-  },
-})
-
-// Internal cron job in the soft queue
-registerCronJob({
-  name: 'my-handler-cron',
-  isActive: true,
-  args: { message: 'hello cron soft queue' },
-  processingQueue: 'soft', // internal-process
-  handler: function (args: { message: string }) {
-  },
-  schedule: '*/2 * * * * *',
-})
+await worker.runJob('my-custom-job', { args: { message: 'Hello!' } }) // distributed job
+worker.runTask('my-moderate-task', { args: { message: 'Hello local!' } }) // internal task
 ```
 
----
-
-### 4. Custom Subscriber (extra-process)
-
-```ts
-import { Subscriber } from 'modules/subscribers/decorators/base.ts'
-import { ZanixSubscriber } from 'modules/subscribers/base.ts'
-
-@Subscriber({ queue: { topic: 'extra-process-queue', execution: 'extra-process' } })
-export class _Subscriber extends ZanixSubscriber {
-  protected async onmessage(args: { message: string }) {
-  }
-}
-```
-
----
-
-### 5. Running Jobs and Tasks
-
-```ts
-// Distributed jobs (extra-process or custom queue)
-await worker.runJob('my-custom-job', { args: { message: 'Hello!' } })
-
-// Internal tasks (soft/moderate/intensive)
-worker.runTask('my-moderate-task', {
-  args: { message: 'Hello local!' },
-  callback: (err, result) => console.log(result),
-})
-```
-
-> ⚠️ `runTask` dispatches to a real internal worker thread, whose bootstrap module must be
-> registered beforehand via `setTaskerUrl` (exported from `@zanix/asyncmq/worker`) — otherwise it
-> logs an error and returns `false` instead of running the task. If your app bootstraps through
-> `@zanix/core`, this is handled for you automatically; see
-> [Running the Worker](#7-running-the-worker) below for what's required when using AsyncMQ
-> standalone.
-
----
-
-### 6. Executing Generic Tasks
-
-For quick, moderate, or light tasks where no dependency injection is required, you can use
-`executeGeneralTask`. This method runs a function inside a default `WorkerManager` instance (with 3
-workers by default) in an **internal-process** context.
-
-```ts
-const invokeTask = worker.executeGeneralTask(
-  fn, // function to handle
-  {
-    metaUrl: import.meta.url, // Required metadata for the worker
-    timeout: 5000, // Optional max execution time in ms
-    callback: (err, result) => {
-      if (err) console.error(err)
-      else console.log('Result from task:', result)
-    },
-  },
-)
-
-// Invoke the task
-invokeTask()
-```
-
-This is ideal for:
-
-- Lightweight computations or transformations
-- Non-persistent background tasks
-- Quick local tasks where dependency injection is not required
-
-> ⚠️ Like other internal queues (`soft`, `moderate`, `intensive`), generic tasks run in
-> **internal-process** and **do not require** the external worker.
-
----
-
-### 7. Running the Worker
-
-To process **predefined AMQP queues** or **custom extra-process queues**, you need a running worker
-process. `@zanix/asyncmq/worker` is a library of bootstrap building blocks
-(`registerExtraProcessQueues`, `setTaskerUrl`, `workerFileTypes`, etc.) — it is **not** a runnable
-script by itself.
-
-If your app is built through `@zanix/core` (the recommended entrypoint — see
-[Description](#-description)), it already wires all of this up for you:
-
-```ts
-// worker.ts
-import Zanix from '@zanix/core'
-
-Zanix.startWorker()
-```
-
-```bash
-deno run -A worker.ts
-```
-
-`Zanix.startWorker()` registers AsyncMQ's extra-process queues, registers `@zanix/core`'s own
-internal-process bootstrap module as AsyncMQ's tasker URL (so `runTask`'s local fallback works
-correctly), loads your project's own connectors/handlers/defs, and keeps the process alive.
-
-Building a standalone worker without `@zanix/core` is possible but manual: call
-`registerExtraProcessQueues()` yourself, load your own project files, and — if you use
-`runTask`/internal tasks — call `setTaskerUrl` with a bootstrap module of your own that at least
-re-runs your job registrations inside the spawned thread.
-
-> ⚠️ Internal queues (`soft`, `moderate`, `intensive`) for **local tasks** **do not require** the
-> external worker and run automatically in the `internal-process` context — but they do require
-> `setTaskerUrl` to have been registered (see above).
-
----
-
-### 8. Informative Environment Variable
-
-During execution, the system internally manages:
-
-```text
-ZANIX_WORKER_EXECUTION
-```
-
-Possible values:
-
-| Value              | Meaning                                       |
-| ------------------ | --------------------------------------------- |
-| `main-process`     | Main application execution (default)          |
-| `extra-process`    | Execution in an external worker (AMQP jobs)   |
-| `internal-process` | Execution in an internal worker (local tasks) |
-
-> This variable is **automatically managed by the system** and **is only for internal reference**.
-> It should **not be manually set**.
+See **[Worker & Task Execution](./docs/worker.md)** for the full reference: Jobs vs Tasks,
+registering jobs/cron jobs/custom Subscribers, `executeGeneralTask`, and — most importantly — how to
+run the worker (through `@zanix/core`, or by building your own internal-process/ extra-process
+entrypoints with `initWorkerEntrypoint`).
 
 ---
 
@@ -597,6 +302,18 @@ That means:
 - Plug-and-play RabbitMQ support
 - No need for manual provider configuration
 - Works across microservices and workers instantly
+
+---
+
+## 📚 Documentation
+
+Full reference guides live under [`docs/`](./docs):
+
+- **[Message Scheduling & Cron Jobs](./docs/scheduling-and-cron.md)** — `schedule`,
+  `registerCronJob`, execution metadata, retries.
+- **[Worker & Task Execution](./docs/worker.md)** — Jobs vs Tasks, predefined queues,
+  `executeGeneralTask`, and running the worker (through `@zanix/core` or with your own
+  internal-process/extra-process entrypoints).
 
 ---
 

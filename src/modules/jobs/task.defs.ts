@@ -26,8 +26,8 @@ import { getRegisterBaseJobData } from './base.ts'
  * ```ts
  * registerJob({
  *   name: 'send-email',
- *   weight: 'light',
- *   process: async (payload) => {
+ *   processingQueue: 'soft',
+ *   handler: async (payload) => {
  *     // ...
  *   },
  * })

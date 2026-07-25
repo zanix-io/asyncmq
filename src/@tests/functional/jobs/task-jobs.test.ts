@@ -62,5 +62,15 @@ Deno.test({
     })
 
     assertEquals(response, 'hello local moderate queue')
+
+    // A second dispatch to the same processing queue must reuse the cached local WorkerManager
+    // instead of creating a new one.
+    const secondResponse = await new Promise((resolve) => {
+      assert(worker.runTask('my-moderate-task', {
+        callback: (r) => resolve(r.response.message),
+      }))
+    })
+
+    assertEquals(secondResponse, 'hello local moderate queue')
   },
 })

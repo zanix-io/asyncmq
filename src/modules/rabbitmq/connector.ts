@@ -18,7 +18,9 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
   #uri: string
   #connection!: ChannelModel
   #connected: boolean = false
+  /** Display name used in connection/disconnection log messages. */
   private name: string
+  /** Creates the connector from the AMQP URI and any base `ZanixAsyncmqConnector` options. */
   constructor(options: ConnectorOptions & { uri: string }) {
     const { uri, ...opts } = options
     super(opts)
@@ -73,7 +75,10 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
     const { messageCount } = await channel.assertQueue(fullQueuePath, opts)
     const messages: ConsumeMessage[] = []
 
-    if (messageCount === 0) return messages
+    if (messageCount === 0) {
+      if (!options.channel) await channel.close()
+      return messages
+    }
 
     return new Promise((resolve) => {
       let received = 0
@@ -92,6 +97,7 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
     })
   }
 
+  /** Opens the underlying AMQP connection and tracks its `close` event. */
   protected async initialize(): Promise<void> {
     this.#connection = await connect(this.#uri)
     this.#connection.on('close', () => {
@@ -101,6 +107,7 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
     this.#connected = true
   }
 
+  /** Closes the underlying AMQP connection, ignoring an already-closing connection. */
   protected async close() {
     try {
       // Disconnect from amqp
@@ -116,6 +123,7 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
     }
   }
 
+  /** Whether the underlying AMQP connection is currently open. */
   public override isHealthy(): boolean {
     return this.#connected
   }

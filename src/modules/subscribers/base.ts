@@ -24,6 +24,7 @@ import {
  */
 export abstract class ZanixSubscriber<Interactor extends ZanixInteractorGeneric = never>
   extends HandlerGenericClass<Interactor, IZanixSubscriber[keyof IZanixSubscriber]> {
+  /** Wraps `onmessage` so a configured `rto` validates the message before the real handler runs. */
   constructor(context: HandlerContext) {
     super(context.id)
 

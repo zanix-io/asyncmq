@@ -53,6 +53,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   #notifierChannel!: Channel
   #secret: string
 
+  /** Resolves the connector and secret, then kicks off async setup and cron execution. */
   constructor(contextId?: string) {
     super(contextId)
     this.#secret = Deno.env.get('DATA_AMQP_SECRET') || 'zanix_default_secret'
@@ -252,6 +253,8 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    *   Used when `date` is not provided.
    *
    * @returns {Promise<boolean>} Resolves to `true` if the message was successfully scheduled.
+   * @throws {ApplicationError} If the resulting `date`/`delay` resolves to a moment that has
+   *   already passed.
    */
   public override async schedule(
     queue: string,

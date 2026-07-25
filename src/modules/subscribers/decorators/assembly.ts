@@ -29,11 +29,7 @@ export function defineSubscriberDecorator(
   if (typeof options === 'string') {
     route = options
   } else if (options) {
-    const optsRto = options.rto
-    if (optsRto) {
-      if (typeof optsRto !== 'object') rto = optsRto
-      else rto = optsRto
-    }
+    if (options.rto) rto = options.rto
     interactor = getTargetKey(options.Interactor)
 
     if (typeof options.queue === 'string') {

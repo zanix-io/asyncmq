@@ -1,6 +1,7 @@
 import type { MessageQueue } from '@zanix/server'
 import type { BaseJob, JobProcess } from './jobs.ts'
 
+/** Fields shared by every cron job definition, regardless of how it's published/executed. */
 export type CronJobDefinitionBase<A extends MessageQueue = MessageQueue> = BaseJob<A> & {
   /** Indicates whether the cron job is active or not. */
   isActive: boolean

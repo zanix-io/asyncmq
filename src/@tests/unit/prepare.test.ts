@@ -1,6 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 import { assert, assertEquals } from '@std/assert'
-import { decode, prepareOptions } from 'modules/rabbitmq/provider/messages.ts'
+import { decode, encode, prepareOptions } from 'modules/rabbitmq/provider/messages.ts'
 import { MESSAGE_HEADERS } from 'utils/constants.ts'
 import { isUUID } from '@zanix/validator'
 
@@ -102,4 +102,14 @@ Deno.test('prepareOptions: persistent tiene default true', async () => {
   )
 
   assertEquals(opts.persistent, true)
+})
+
+Deno.test('encode: returns an empty buffer when the message is null', async () => {
+  const buffer = await encode(null, 'secret')
+  assertEquals(buffer.length, 0)
+})
+
+Deno.test('decode: returns an empty string when the buffer is empty', async () => {
+  const value = await decode(await encode(null, 'secret'), 'secret')
+  assertEquals(value, '')
 })

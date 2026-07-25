@@ -118,7 +118,8 @@ export class ZanixCoreWorkerProvider extends ZanixWorkerProvider {
    * @param {Omit<QueueMessageOptions, 'contextId' | 'isInternal'>} [options.settings]
    *  - Additional options for publishing the queue message.
    *
-   * @returns {Promise<boolean>} Enqueue result or `void` on failure.
+   * @returns {Promise<boolean> | boolean} The enqueue result, or `false` if the job isn't
+   *   registered (logged, not thrown).
    */
   public runJob(
     name: string,

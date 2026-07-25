@@ -15,10 +15,13 @@ import { defineSubscriberDecorator } from './assembly.ts'
  *
  * @returns {ZanixClassDecorator} The class decorator that registers the class as a Subscriber handler.
  *
+ * @throws {InternalError} If the decorated class doesn't extend `ZanixSubscriber`, or if another
+ *   Subscriber is already registered under the same route/queue.
+ *
  * @example
  * // Simple route usage
  * @Subscriber('/queue/endpoint')
- * class SubscriberHandler {}
+ * class SubscriberHandler extends ZanixSubscriber {}
  *
  * @example
  * // Detailed options usage
@@ -27,7 +30,7 @@ import { defineSubscriberDecorator } from './assembly.ts'
  *   rto: SomeRequestTransferObject,
  *   Interactor: SomeInteractorClass
  * })
- * class SubscriberHandler {}
+ * class SubscriberHandler extends ZanixSubscriber {}
  */
 export function Subscriber(
   options?: SubscriberDecoratorOptions | string,

@@ -38,6 +38,7 @@
     "jsr:@zanix/datamaster@0.5": "0.5.0",
     "jsr:@zanix/server@2": "2.0.1",
     "jsr:@zanix/server@^2.0.1": "2.0.1",
+    "jsr:@zanix/utils@*": "2.3.0",
     "jsr:@zanix/utils@2": "2.3.0",
     "jsr:@zanix/utils@2.3": "2.3.0",
     "npm:@types/amqplib@0.10": "0.10.8",

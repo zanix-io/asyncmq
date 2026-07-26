@@ -237,7 +237,7 @@ Invalid payloads are logged and routed to DLQ.
 
 ---
 
-## 🛠 Worker & Task Execution
+## 🔄 Worker & Task Execution
 
 Zanix AsyncMQ executes **distributed jobs** (durable, via predefined `soft`/`moderate`/`intensive`
 AMQP queues or a custom queue) and **internal tasks** (ephemeral, via the same predefined queues but

@@ -9,17 +9,33 @@
 
 import { ZanixCoreAsyncMQProvider } from './provider/mod.ts'
 import { ZanixRabbitMQConnector } from './connector.ts'
-import { Connector, Provider } from '@zanix/server'
+import {
+  Connector,
+  Provider,
+  registerCoreConnectorSlot,
+  registerCoreProviderSlot,
+  ZanixAsyncmqConnector,
+  ZanixAsyncMQProvider,
+} from '@zanix/server'
 
 const isInternal = Deno.env.get('ZANIX_WORKER_EXECUTION') === 'internal-process'
 
 const startMode = isInternal ? 'lazy' : 'postBoot'
 
+// `@zanix/asyncmq` owns the `'asyncmq'` provider and connector slots — registered unconditionally
+// (unlike `registerConnector` below, which only installs a *concrete* implementation when
+// `AMQP_URI` is set). Without `AMQP_URI`, the slot still exists — resolving it then correctly
+// fails with "registered but no implementation found", not "missing core slot".
+registerCoreConnectorSlot('asyncmq', ZanixAsyncmqConnector, {
+  sourcePackage: '@zanix/asyncmq/core',
+})
+registerCoreProviderSlot('asyncmq', ZanixAsyncMQProvider, { sourcePackage: '@zanix/asyncmq/core' })
+
 /** Connector DSL definition */
 const registerConnector = () => {
   if (!Deno.env.has('AMQP_URI')) return
 
-  @Connector({ type: 'asyncmq', startMode })
+  @Connector({ slot: 'asyncmq', startMode })
   class _ZanixRabbitMQConnector extends ZanixRabbitMQConnector {
     constructor(contextId?: string) {
       // deno-lint-ignore no-non-null-assertion
@@ -27,7 +43,7 @@ const registerConnector = () => {
     }
   }
 
-  @Provider({ type: 'asyncmq', startMode })
+  @Provider({ slot: 'asyncmq', startMode })
   class _ZanixAsyncMQProvider extends ZanixCoreAsyncMQProvider {
     constructor(contextId?: string) {
       super(contextId)

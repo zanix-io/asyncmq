@@ -117,6 +117,14 @@ export class ZanixCoreWorkerProvider extends ZanixWorkerProvider {
    * @param {Message} [options.args] - Payload sent to the job.
    * @param {Omit<QueueMessageOptions, 'contextId' | 'isInternal'>} [options.settings]
    *  - Additional options for publishing the queue message.
+   * @param {string} [options.provider] - Which AsyncMQ provider slot to publish through, resolved
+   *  the same way `this.providers.get(key)` always does for a string key. Defaults to `'asyncmq'`,
+   *  the single core AsyncMQ provider slot every app has today. This is forward-looking:
+   *  `@zanix/asyncmq` doesn't yet support registering a *second* simultaneous broker provider
+   *  under a different slot, so there's nothing to pass here in practice yet — but the call-site
+   *  (not `registerJob`) is deliberately where that choice would belong once/if it's needed,
+   *  keeping a job's registration itself broker-agnostic (the same registration already runs
+   *  unchanged via `runTask`, which has no provider concept at all).
    *
    * @returns {Promise<boolean> | boolean} The enqueue result, or `false` if the job isn't
    *   registered (logged, not thrown).
@@ -127,6 +135,7 @@ export class ZanixCoreWorkerProvider extends ZanixWorkerProvider {
       contextId?: string
       args?: MessageQueue
       settings?: Omit<QueueMessageOptions, 'contextId' | 'isInternal'>
+      provider?: string
     } = {},
   ): Promise<boolean> | boolean {
     const job = this.#jobs[name]
@@ -138,7 +147,7 @@ export class ZanixCoreWorkerProvider extends ZanixWorkerProvider {
       return false
     }
 
-    const provider = this.providers.get<ZanixCoreAsyncMQProvider>('asyncmq')
+    const provider = this.providers.get<ZanixCoreAsyncMQProvider>(options.provider ?? 'asyncmq')
 
     const { args, contextId, settings } = options
 

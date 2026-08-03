@@ -3,7 +3,6 @@ import { initWorkerEntrypoint, registerExtraProcessQueues } from 'modules/worker
 import logger from '@zanix/logger'
 
 import 'modules/core.ts'
-
 // Test-only fixture spawned as a real child process (see `__setup__.ts`'s `childSpawn`) to
 // exercise a standalone AsyncMQ worker end-to-end. Mirrors the relevant parts of `@zanix/core`'s
 // `Zanix.startWorker()` — minus any cross-package (datamaster/notifications) setup, which this
@@ -18,7 +17,7 @@ self.addEventListener('unload', async () => {
 await registerExtraProcessQueues()
 await initWorkerEntrypoint(async () => {
   await import('./job.defs.ts')
-  await import('jsr:@zanix/datamaster@0.5.*/core')
+  await import('@zanix/datamaster/core')
 })
 
 logger.success('External worker initialized...')

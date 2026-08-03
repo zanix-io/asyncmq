@@ -150,6 +150,27 @@ worker.runTask('my-moderate-task', {
 > [Running the Worker](#7-running-the-worker) below for what's required when using AsyncMQ
 > standalone.
 
+### `runJob`'s `provider` option
+
+`runJob` publishes through the `'asyncmq'` core provider slot by default — the single AsyncMQ broker
+connection every app has today. `options.provider` lets you target a different provider slot
+instead:
+
+```ts
+await this.worker.runJob('my-custom-job', {
+  args: { amount },
+  provider: 'secondary-broker', // only meaningful once a second AsyncMQ provider is registered
+})
+```
+
+This is forward-looking: `@zanix/asyncmq` doesn't yet support registering a _second_ simultaneous
+broker provider under a different slot (`'asyncmq'` is one of `@zanix/server`'s reserved core slots,
+currently singular), so there's nothing to pass here in practice yet. The option exists so that
+choice — if it's ever needed — lives at the **call site** (`runJob`), not baked into `registerJob`.
+A job's registration stays broker-agnostic on purpose: the exact same registered job already runs
+unchanged through `runTask` (no provider/broker concept at all), so tying a job's _identity_ to a
+specific broker at registration time would break that.
+
 ---
 
 ## 6. Executing Generic Tasks

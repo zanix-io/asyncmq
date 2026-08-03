@@ -1,5 +1,5 @@
 import { assertEquals, assertFalse } from '@std/assert'
-import { stub } from '@std/testing/mock'
+import { spy, stub } from '@std/testing/mock'
 import { ProgramModule } from '@zanix/server'
 import { ZanixCoreWorkerProvider } from 'modules/worker/provider.ts'
 import { registerJob } from 'modules/jobs/task.defs.ts'
@@ -108,6 +108,59 @@ Deno.test({
       )
     } finally {
       errorLogs.restore()
+      ProgramModule.registry.delete(JOBS_METADATA_KEY)
+    }
+  },
+})
+
+Deno.test({
+  name: 'ZanixCoreWorkerProvider#runJob: resolves the default "asyncmq" provider when omitted',
+  fn: async () => {
+    registerJob({
+      name: 'default-provider-job',
+      customQueue: 'some-custom-queue',
+      // deno-lint-ignore no-explicit-any
+      handler: (() => {}) as any,
+      args: {},
+    })
+
+    const worker = new ZanixCoreWorkerProvider()
+    const enqueue = spy(() => true)
+    const get = spy((_key: unknown) => ({ enqueue }))
+    // Shadows the inherited `providers` getter (`CoreBaseClass`, `@zanix/server`) with an own
+    // instance property — the simplest way to observe which slot `runJob` resolves without
+    // needing a real AsyncMQ connection.
+    Object.defineProperty(worker, 'providers', { value: { get } })
+
+    try {
+      await worker.runJob('default-provider-job')
+      assertEquals(get.calls[0].args, ['asyncmq'])
+    } finally {
+      ProgramModule.registry.delete(JOBS_METADATA_KEY)
+    }
+  },
+})
+
+Deno.test({
+  name: 'ZanixCoreWorkerProvider#runJob: resolves a caller-supplied provider slot instead',
+  fn: async () => {
+    registerJob({
+      name: 'custom-provider-job',
+      customQueue: 'some-custom-queue',
+      // deno-lint-ignore no-explicit-any
+      handler: (() => {}) as any,
+      args: {},
+    })
+
+    const worker = new ZanixCoreWorkerProvider()
+    const enqueue = spy(() => true)
+    const get = spy((_key: unknown) => ({ enqueue }))
+    Object.defineProperty(worker, 'providers', { value: { get } })
+
+    try {
+      await worker.runJob('custom-provider-job', { provider: 'secondary-broker' })
+      assertEquals(get.calls[0].args, ['secondary-broker'])
+    } finally {
       ProgramModule.registry.delete(JOBS_METADATA_KEY)
     }
   },

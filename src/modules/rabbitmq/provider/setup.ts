@@ -35,7 +35,7 @@ const checkQueue = async (
   const channel = await connector.createChannel()
   channel.on('error', () => {})
   channel.on('close', () => {})
-  const q = await channel.checkQueue(queueName).catch((e) => {
+  const q = await channel.checkQueue(queueName).catch((e: { code?: number }) => {
     if (e.code === 404) {
       return { consumerCount: 0, messageCount: 0 }
     }
@@ -187,7 +187,7 @@ export async function setup(
     //--------------------------
     await Promise.all([...Array(consumerChannels).keys()].map(async () => {
       const consumerChannel = await connector.createChannel()
-      consumerChannel.on('error', (e) => {
+      consumerChannel.on('error', (e: { code?: number }) => {
         logger.error(`Error occurred on the queue channel for queue: ${queue}`, {
           cause: e,
           meta: { source: 'zanix', queue, errorCode: e.code || 'UNKNOWN_ERROR' },

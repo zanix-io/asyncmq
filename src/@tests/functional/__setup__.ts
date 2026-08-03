@@ -1,3 +1,5 @@
+// deno-coverage-ignore-file
+
 import type { MessageInfo, QueueOptions } from 'typings/queues.ts'
 
 import { ZanixCoreAsyncMQProvider } from 'modules/rabbitmq/provider/mod.ts'
@@ -16,7 +18,7 @@ console.warn = () => {}
 const dependencies = async () => {
   Deno.env.set('AMQP_URI', 'amqp://guest:guest@localhost:5672/')
 
-  await import('jsr:@zanix/datamaster@0.5.*/core')
+  await import('@zanix/datamaster/core')
   await import('../../modules/rabbitmq/defs.ts')
 
   await targetInitializations('onSetup')

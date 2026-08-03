@@ -1,4 +1,10 @@
-import type { Execution, IZanixSubscriber, MessageInfo, QueueOptions } from 'typings/queues.ts'
+import type {
+  ErrorInfo,
+  Execution,
+  IZanixSubscriber,
+  MessageInfo,
+  QueueOptions,
+} from 'typings/queues.ts'
 import type { CronRegistry } from 'typings/crons.ts'
 import type { Channel, ConsumeMessage } from 'amqp'
 
@@ -13,6 +19,29 @@ import { cronqPath, qPath, schqPath } from '../rabbitmq/provider/setup.ts'
 import { lockMessage, unlockMessage } from 'utils/queues.ts'
 import { decode } from '../rabbitmq/provider/messages.ts'
 import { nextCronDate } from '@zanix/helpers'
+import logger from '@zanix/logger'
+
+/**
+ * Runs the subscriber's `onerror` hook without letting it break the ack/nack and unlock
+ * flow: a throwing or rejecting `onerror` would otherwise escape as an unhandled rejection
+ * from the amqplib consumer callback and skip the cleanup that follows it.
+ */
+const safeOnError = async (
+  subscriber: IZanixSubscriber,
+  message: unknown,
+  error: unknown,
+  info: ErrorInfo,
+) => {
+  try {
+    await subscriber.onerror(message, error, info)
+  } catch (onErrorException) {
+    logger.error(
+      `The onerror handler itself threw for the queue subscriber on topic "${info.queue}"`,
+      onErrorException,
+      'noSave',
+    )
+  }
+}
 
 /**
  * Creates a message processor for a specific subscriber and queue.
@@ -117,7 +146,7 @@ export const processorHandler = (
 
         const newAttempt = attempt + 1
 
-        subscriber.onerror(messageContent, e, {
+        await safeOnError(subscriber, messageContent, e, {
           ...baseInfo,
           requeued: true,
           attempt: newAttempt,
@@ -138,7 +167,7 @@ export const processorHandler = (
         }
         await unlockMessage(messageId, cache)
       } else {
-        subscriber.onerror(messageContent, e, { requeued: false, ...baseInfo })
+        await safeOnError(subscriber, messageContent, e, { requeued: false, ...baseInfo })
         // Send to dead letters
         channel.nack(msg, false, false)
         await unlockMessage(messageId, cache)

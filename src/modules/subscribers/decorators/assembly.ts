@@ -43,7 +43,6 @@ export function defineSubscriberDecorator(
 
   const subscriberKey = SUBSCRIBERS_METADATA_KEY[execution]
 
-  ZanixSubscriber.prototype.requestValidationPipe
   const subscribers = ProgramModule.registry.get<SubscriberMetadata[]>(subscriberKey) || []
   const extraProcessSubscribers = ProgramModule.registry.get<SubscriberMetadata[]>(
     execution === 'main-process'

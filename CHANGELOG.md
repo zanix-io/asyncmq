@@ -7,6 +7,19 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+# Changelog
+
+## 0.5.0 - 2026-08-01
+
+### Added
+
+- Added a new `provider` option to `runJob`, allowing callers to specify which AsyncMQ provider slot
+  should be used when publishing a job.
+- `runJob` continues to default to the core `'asyncmq'` provider, making this change fully backward
+  compatible.
+- Introduced this option as a forward-compatible API for future multi-broker support while keeping
+  job registrations broker-agnostic and compatible with both `runJob` and `runTask`.
+
 ## [0.4.0] - 2026-07-25
 
 ### Added

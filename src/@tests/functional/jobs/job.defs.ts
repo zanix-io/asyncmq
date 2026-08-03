@@ -67,8 +67,10 @@ registerCronJob({
 export class _Subscriber extends ZanixSubscriber {
   protected async onmessage(args: { message: string }) {
     if (Deno.env.get('id') !== 'my-custom-job') return
+    const message = `external-job-finish-response: ${args.message}\n`
+
     await Deno.stdout.write(
-      new TextEncoder().encode(`external-job-finish-response: ${args.message}`),
+      new TextEncoder().encode(message),
     )
   }
 }

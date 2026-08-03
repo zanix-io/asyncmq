@@ -82,7 +82,7 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
 
     return new Promise((resolve) => {
       let received = 0
-      channel.consume(fullQueuePath, (msg) => {
+      channel.consume(fullQueuePath, (msg: ConsumeMessage | null) => {
         if (!msg) return
         received++
         if (filter(msg)) {

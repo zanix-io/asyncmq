@@ -2,6 +2,7 @@ import { childSpawn, killChild, registerQueue, registerWorkerProvider } from '..
 import { assert } from '@std/assert'
 import { ProgramModule } from '@zanix/server'
 import { registerJob } from 'modules/jobs/task.defs.ts'
+import { registerExtraProcessQueues } from '../../../../src/modules/worker/mod.ts'
 
 Deno.test.afterAll(() => {
   ProgramModule.registry.resetContainer()
@@ -33,7 +34,10 @@ Deno.test({
   name: 'Amqp Jobs should works with custom queues in extra process',
   fn: async () => {
     Deno.env.set('AMQP_URI', 'amqp://guest:guest@localhost:5672/')
+    Deno.env.set('id', 'my-custom-job')
     const child = await childSpawn('my-custom-job')
+
+    await registerExtraProcessQueues()
     await import('./job.defs.ts')
     const worker = await registerWorkerProvider()
 
@@ -45,13 +49,16 @@ Deno.test({
     for await (const chunk of child.stdout!) {
       const message = new TextDecoder().decode(chunk)
 
-      hasMessage = message === 'external-job-finish-response: hello local custom queue'
+      hasMessage = message.includes('external-job-finish-response: hello local custom queue')
 
       if (hasMessage) break
     }
 
     await killChild(child)
     assert(hasMessage)
+
+    Deno.env.delete('ZANIX_WORKER_EXECUTION')
+    Deno.env.delete('id')
   },
 })
 

@@ -7,9 +7,22 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-# Changelog
+## [0.5.1] - 2026-08-03
 
-## 0.5.0 - 2026-08-01
+### Fixed
+
+- `setup()`'s queue-options cache key (`SUBSCRIBERS_METADATA_KEY`) is now namespaced by `project` —
+  it was previously a fixed, package-wide string, so any two services sharing the same
+  `cache`/`kvLocal` backend (e.g. the same Redis instance across a fleet of microservices, a common
+  setup) read and wrote the _same_ key. Whichever service last ran `setup()` clobbered the others'
+  stored options, so the next service's queue-recreation path
+  (`consumeAllMessages(fullQueuePath, oldOptions)`) ended up asserting its own, correctly-named
+  queue with another service's `deadLetterRoutingKey` — RabbitMQ rejects this with
+  `406 PRECONDITION-FAILED (inequivalent arg 'x-dead-letter-routing-key')`, even though the queue
+  name itself was correct. Confirmed against a real incident: two services on one shared Redis
+  instance, each declaring the other's dead-letter routing key on its own queue.
+
+## [0.5.0] - 2026-08-01
 
 ### Added
 

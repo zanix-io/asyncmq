@@ -72,20 +72,29 @@ export async function setup(
   const { subscribers, crons, execution, kvLocal, cache, connector, secret } = options
 
   const subscriberKey = SUBSCRIBERS_METADATA_KEY[execution]
+  // Namespaced by `project`: `SUBSCRIBERS_METADATA_KEY` is a fixed, package-wide constant, and the
+  // `cache`/`kvLocal` backend it's stored under (Redis, when `REDIS_URI` is set — see
+  // `utils/queues.ts`) is commonly shared across multiple deployed services. Without this prefix,
+  // every service reads and writes the exact same key, so whichever service last called `setup()`
+  // clobbers every other service's stored queue options — corrupting the very next service's
+  // `consumeAllMessages(fullQueuePath, oldOptions)` call below with a foreign `deadLetterRoutingKey`
+  // (a real, confirmed incident: two services sharing one Redis instance, each declaring the
+  // other's dead-letter routing key on its own correctly-named queue, causing RabbitMQ to reject
+  // the redeclare with `406 PRECONDITION-FAILED`).
+  const storageKey = subscriberKey && `${project}:${subscriberKey}`
 
   if (!subscribers) {
-    if (subscriberKey) kvLocal.delete(subscriberKey)
+    if (storageKey) kvLocal.delete(storageKey)
     return false
   }
 
   const setupChannel = await connector.createChannel()
 
-  const storagedQueues = await getStoragedQueueOptions<Record<string, string>>(subscriberKey, {
+  const storagedQueues = await getStoragedQueueOptions<Record<string, string>>(storageKey, {
     cache,
     kvLocal,
   })
   const queueOptions: typeof storagedQueues = {}
-
   //--------------------------
   // Create global exchanges
   //--------------------------
@@ -261,5 +270,5 @@ export async function setup(
   //--------------------------
   // Save queue data
   //--------------------------
-  await storageQueueOptions(subscriberKey, queueOptions, { cache, kvLocal })
+  await storageQueueOptions(storageKey, queueOptions, { cache, kvLocal })
 }

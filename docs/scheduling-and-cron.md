@@ -26,7 +26,9 @@ class too.
 import { ProgramModule } from '@zanix/server'
 import type { ZanixCoreAsyncMQProvider } from 'jsr:@zanix/asyncmq@latest'
 
-const asyncmq = ProgramModule.providers.get<ZanixCoreAsyncMQProvider>('asyncmq')
+const asyncmq = ProgramModule.providers.get<ZanixCoreAsyncMQProvider>(
+  'asyncmq',
+)
 
 await asyncmq.schedule(
   'email.send',

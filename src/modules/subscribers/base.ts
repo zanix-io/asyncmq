@@ -22,8 +22,12 @@ import {
  *
  * @abstract
  */
-export abstract class ZanixSubscriber<Interactor extends ZanixInteractorGeneric = never>
-  extends HandlerGenericClass<Interactor, IZanixSubscriber[keyof IZanixSubscriber]> {
+export abstract class ZanixSubscriber<
+  Interactor extends ZanixInteractorGeneric = never,
+> extends HandlerGenericClass<
+  Interactor,
+  IZanixSubscriber[keyof IZanixSubscriber]
+> {
   /** Wraps `onmessage` so a configured `rto` validates the message before the real handler runs. */
   constructor(context: HandlerContext) {
     super(context.id)
@@ -31,11 +35,16 @@ export abstract class ZanixSubscriber<Interactor extends ZanixInteractorGeneric 
     const currentOnMessage = this.onmessage.bind(this)
 
     this.onmessage = function (message, info) {
-      const rto = this['_znx_props_'].data.rto as undefined | (new (ctx?: unknown) => BaseRTO)
+      const rto = this['_znx_props_'].data.rto as
+        | undefined
+        | (new (ctx?: unknown) => BaseRTO)
 
       return rto
         ? this.requestValidation({ Body: rto }, context).catch((error) => {
-          throw new ApplicationError('Data validation Error', { cause: error.cause, id: error.id })
+          throw new ApplicationError('Data validation Error', {
+            cause: error.cause,
+            id: error.id,
+          })
         }).then((payload) => {
           return currentOnMessage(payload.body, info)
         })

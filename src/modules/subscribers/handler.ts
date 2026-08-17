@@ -67,7 +67,10 @@ export const processorHandler = (
     // Default exponential backoff with a cap
     backoffStrategy = (attempt, options = {}) => {
       const { exponentialBackoffCoefficient = 2, exponentialTimeout = 15000 } = options
-      return Math.min(1000 * exponentialBackoffCoefficient ** attempt, exponentialTimeout)
+      return Math.min(
+        1000 * exponentialBackoffCoefficient ** attempt,
+        exponentialTimeout,
+      )
     },
   } = retries
 
@@ -110,7 +113,11 @@ export const processorHandler = (
 
       const nextExecution = await nextCronDate(cron.schedule)
       if (!nextExecution) return
-      baseInfo.cron = { nextExecution, name: cronIdentifier, expression: cron.schedule }
+      baseInfo.cron = {
+        nextExecution,
+        name: cronIdentifier,
+        expression: cron.schedule,
+      }
 
       const now = Date.now()
       const nextExecutionTime = nextExecution.getTime()
@@ -138,7 +145,8 @@ export const processorHandler = (
       channel.ack(msg)
       await unlockMessage(messageId, cache)
     } catch (e) {
-      const maxRetries = headers[MESSAGE_HEADERS.maxRetries] ?? globalMaxRetries
+      const maxRetries = headers[MESSAGE_HEADERS.maxRetries] ??
+        globalMaxRetries
       const backoffOptions = headers[MESSAGE_HEADERS.backoffOptions]
 
       if (attempt < maxRetries) {
@@ -167,7 +175,10 @@ export const processorHandler = (
         }
         await unlockMessage(messageId, cache)
       } else {
-        await safeOnError(subscriber, messageContent, e, { requeued: false, ...baseInfo })
+        await safeOnError(subscriber, messageContent, e, {
+          requeued: false,
+          ...baseInfo,
+        })
         // Send to dead letters
         channel.nack(msg, false, false)
         await unlockMessage(messageId, cache)

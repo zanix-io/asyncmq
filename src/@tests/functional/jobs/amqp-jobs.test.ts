@@ -49,7 +49,9 @@ Deno.test({
     for await (const chunk of child.stdout!) {
       const message = new TextDecoder().decode(chunk)
 
-      hasMessage = message.includes('external-job-finish-response: hello local custom queue')
+      hasMessage = message.includes(
+        'external-job-finish-response: hello local custom queue',
+      )
 
       if (hasMessage) break
     }
@@ -79,8 +81,8 @@ Deno.test({
     for await (const chunk of child.stdout!) {
       const message = new TextDecoder().decode(chunk)
 
-      hasMessage =
-        message === 'job-finish-response: hello local intensive queue (zanix.worker.intensive)'
+      hasMessage = message ===
+        'job-finish-response: hello local intensive queue (zanix.worker.intensive)'
 
       if (hasMessage) break
     }

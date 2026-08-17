@@ -57,7 +57,8 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   constructor(contextId?: string) {
     super(contextId)
     this.#secret = Deno.env.get('DATA_AMQP_SECRET') || 'zanix_default_secret'
-    this.#execution = Deno.env.get('ZANIX_WORKER_EXECUTION') as Execution || 'main-process'
+    this.#execution = Deno.env.get('ZANIX_WORKER_EXECUTION') as Execution ||
+      'main-process'
     this.#connector = this.use<ZanixRabbitMQConnector>(false)
     const crons = this.registry.get<CronRegistry[]>(CRONS_METADATA_KEY)
     this.#isConfigured = new Promise((resolve) =>
@@ -199,7 +200,12 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     else if (isInternal) topic = qPath(topic)
 
     const secureMessage = await encode(message, this.#secret)
-    return this.#notifierChannel.publish(GLOBAL_EXCHANGE, topic, secureMessage, opts)
+    return this.#notifierChannel.publish(
+      GLOBAL_EXCHANGE,
+      topic,
+      secureMessage,
+      opts,
+    )
   }
 
   /**
@@ -229,7 +235,11 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
         ...message.properties.headers,
         [MESSAGE_HEADERS.rqFromDL]: true,
       }
-      this.#notifierChannel.sendToQueue(queuePath, message.content, message.properties)
+      this.#notifierChannel.sendToQueue(
+        queuePath,
+        message.content,
+        message.properties,
+      )
       return decode(message.content, this.#secret)
     }))
   }

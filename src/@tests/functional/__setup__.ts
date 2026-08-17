@@ -55,11 +55,17 @@ export const registerQueue = async (
   let errors = 0
   const { callback, ...opts } = options || {}
   await new Promise((resolve) => {
-    @Subscriber({ Interactor: _Interactor, rto: Rto, queue: { topic: queue, settings: opts } })
+    @Subscriber({
+      Interactor: _Interactor,
+      rto: Rto,
+      queue: { topic: queue, settings: opts },
+    })
     class _Subscriber extends ZanixSubscriber<_Interactor> {
       public onmessage(data: { message: string }, info: MessageInfo) {
         assertEquals(data.message, 'hello queue')
-        assert(info.requeuedFromDeadLetter ? info.attempt === 2 : info.attempt >= 0)
+        assert(
+          info.requeuedFromDeadLetter ? info.attempt === 2 : info.attempt >= 0,
+        )
         assert(isUUID(this.interactor.getCtx()))
         calls++
         callback?.(info)

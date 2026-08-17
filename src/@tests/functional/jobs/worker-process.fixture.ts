@@ -1,3 +1,5 @@
+// deno-coverage-ignore-file
+
 import { attachGlobalErrorHandlers, closeAllConnections } from '@zanix/server'
 import { initWorkerEntrypoint, registerExtraProcessQueues } from 'modules/worker/mod.ts'
 import logger from '@zanix/logger'
@@ -23,10 +25,17 @@ await initWorkerEntrypoint(async () => {
 logger.success('External worker initialized...')
 
 await new Promise<void>((resolve) => {
-  Deno.addSignalListener('SIGINT', async () => {
+  const shutdown = async () => {
     logger.info('Closing external worker...', 'noSave')
+
+    Deno.removeSignalListener('SIGINT', shutdown)
+    Deno.removeSignalListener('SIGTERM', shutdown)
+
     await closeAllConnections()
     resolve()
     Deno.exit(0)
-  })
+  }
+
+  Deno.addSignalListener('SIGINT', shutdown)
+  Deno.addSignalListener('SIGTERM', shutdown)
 })

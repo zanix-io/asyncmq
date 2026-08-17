@@ -2,7 +2,7 @@
 
 name: Publish
 
-on:  
+on:
   # Run on push or PRs to master
   pull_request:
     branches:
@@ -22,8 +22,8 @@ jobs:
       rabbitmq:
         image: rabbitmq:3-management
         ports:
-          - 5672:5672   # AMQP port
-          - 15672:15672 # dashboard management 
+          - 5672:5672 # AMQP port
+          - 15672:15672 # dashboard management
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
           --health-interval 10s
@@ -50,7 +50,7 @@ jobs:
             echo "RabbitMQ not ready..."
             sleep 3
           done
-        
+
       - name: Run tests
         run: deno test --allow-all
 

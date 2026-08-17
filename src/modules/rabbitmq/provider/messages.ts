@@ -11,8 +11,12 @@ export const prepareOptions = async (
   secret: string,
   getContext: (id: string) => ScopedContext,
 ) => {
-  const { retryConfig: { maxRetries, backoffOptions } = {}, priority, contextId, ...baseOpts } =
-    options
+  const {
+    retryConfig: { maxRetries, backoffOptions } = {},
+    priority,
+    contextId,
+    ...baseOpts
+  } = options
   const opts: Options.Publish = baseOpts
 
   const context = prepareContext(getContext, contextId)
@@ -39,5 +43,7 @@ export const prepareOptions = async (
 export const encode = async (message: MessageQueue | null, secret: string) =>
   message ? Buffer.from(await encrypt(JSON.stringify(message), secret)) : Buffer.from('')
 
-export const decode = async (message: Buffer<ArrayBufferLike>, secret: string) =>
-  message.length ? JSON.parse(await decrypt(message.toString(), secret)) : ''
+export const decode = async (
+  message: Buffer<ArrayBufferLike>,
+  secret: string,
+) => message.length ? JSON.parse(await decrypt(message.toString(), secret)) : ''

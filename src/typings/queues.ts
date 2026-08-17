@@ -168,7 +168,9 @@ export type QueueOptions =
        *   - `exponentialTimeout` — Base timeout in milliseconds (default: `15000`)
        *   - `exponentialBackoffCoefficient` — Coefficient for backoff growth (default: `2`)
        */
-      backoffStrategy?: false | ((attempt: number, options?: BackoffOptions) => number)
+      backoffStrategy?:
+        | false
+        | ((attempt: number, options?: BackoffOptions) => number)
     }
   }
 

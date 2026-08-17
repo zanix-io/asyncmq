@@ -13,7 +13,10 @@ Deno.test({
       const worker = new ZanixCoreWorkerProvider()
 
       assertFalse(worker.runJob('unregistered-job'))
-      assertEquals(errorLogs.calls[0].args[1], "Job not found: 'unregistered-job'")
+      assertEquals(
+        errorLogs.calls[0].args[1],
+        "Job not found: 'unregistered-job'",
+      )
     } finally {
       errorLogs.restore()
     }
@@ -28,7 +31,10 @@ Deno.test({
       const worker = new ZanixCoreWorkerProvider()
 
       assertFalse(worker.runTask('unregistered-task'))
-      assertEquals(errorLogs.calls[0].args[1], "Job not found: 'unregistered-task'")
+      assertEquals(
+        errorLogs.calls[0].args[1],
+        "Job not found: 'unregistered-task'",
+      )
     } finally {
       errorLogs.restore()
     }
@@ -158,7 +164,9 @@ Deno.test({
     Object.defineProperty(worker, 'providers', { value: { get } })
 
     try {
-      await worker.runJob('custom-provider-job', { provider: 'secondary-broker' })
+      await worker.runJob('custom-provider-job', {
+        provider: 'secondary-broker',
+      })
       assertEquals(get.calls[0].args, ['secondary-broker'])
     } finally {
       ProgramModule.registry.delete(JOBS_METADATA_KEY)

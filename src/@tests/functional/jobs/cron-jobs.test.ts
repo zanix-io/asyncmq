@@ -51,7 +51,8 @@ Deno.test({
     for await (const chunk of child.stdout!) {
       const message = new TextDecoder().decode(chunk)
 
-      hasMessage = message === 'cron-job-finish-response: hello cron soft queue (zanix.worker.soft)'
+      hasMessage = message ===
+        'cron-job-finish-response: hello cron soft queue (zanix.worker.soft)'
       if (hasMessage) break
     }
 

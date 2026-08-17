@@ -7,6 +7,34 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-17
+
+### Added
+
+- `registerDLQProcessor` (`@zanix/asyncmq/dlq`, a separate subpath so the rest of `@zanix/asyncmq`
+  never pulls in `@zanix/datamaster`'s module graph): registers how to reprocess
+  `@zanix/datamaster`'s DLQ (`DLQProvider`) entries of a given `processType` — a thin wrapper over
+  `registerCronJob` that, each tick, atomically claims one eligible entry (if any) via
+  `DLQProvider.claim()`, runs the registered handler, and marks it `complete`/`fail`. `schedule`/
+  `isActive` are `registerCronJob`'s own real `CronJobDefinitionBase` fields (`Pick`ed directly, not
+  a separate loosely-typed contract). See [Dead Letter Queue Reprocessing](docs/dlq-reprocessing.md)
+  for the full reference, and `@zanix/datamaster`'s `docs/DLQ.md` for
+  `DLQProvider`/`registerDLQModel` themselves.
+
+### Fixed
+
+- **`modules/rabbitmq/provider/setup.ts` read the project config (`readConfig()`) at _module load_
+  time** (`export const project = readConfig().name`) — so merely importing `@zanix/asyncmq`, for
+  any reason, required a `deno.json`/`.jsonc` to already exist in `Deno.cwd()`. Root cause (a second
+  instance of the same anti-pattern as `@zanix/server`'s own — see its CHANGELOG) of a `@zanix/cli`
+  bug where `zanix new space` could fail even after that first fix, reached transitively through
+  `@zanix/app/runtime`'s real `webServerManager` export from `@zanix/server` (see `@zanix/cli`'s own
+  CHANGELOG for the full chain). `project` is now `project()`, a lazy, memoized function — read on
+  first actual use, not at import time. Not part of this package's public API (`mod.ts`/`./worker`/
+  `./core`/`./dlq` never re-export it), so this isn't a breaking change for any published consumer;
+  the one internal test referencing it directly was updated to call it. New real (non-mocked)
+  subprocess regression importing `@zanix/asyncmq` from an empty directory.
+
 ## [0.5.1] - 2026-08-03
 
 ### Fixed

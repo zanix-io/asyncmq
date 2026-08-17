@@ -24,9 +24,13 @@ Deno.test({
   name:
     "job.defs.ts fixture: 'my-moderate-task' handler runs and resolves providers without throwing",
   fn: async () => {
-    const result = await callTask('my-moderate-task.handler', 'zanix.worker.moderate', {
-      message: 'hi',
-    })
+    const result = await callTask(
+      'my-moderate-task.handler',
+      'zanix.worker.moderate',
+      {
+        message: 'hi',
+      },
+    )
 
     assertEquals(result.message, 'hi')
   },
@@ -41,7 +45,9 @@ Deno.test({
     Deno.env.delete('id')
 
     // Should not throw, and should not attempt the stdout write below this point.
-    await callTask('my-intensive-job.handler', 'zanix.worker.intensive', { message: 'hi' })
+    await callTask('my-intensive-job.handler', 'zanix.worker.intensive', {
+      message: 'hi',
+    })
     assert(true)
   },
 })
@@ -54,7 +60,9 @@ Deno.test({
   fn: async () => {
     Deno.env.set('id', 'my-intensive-job')
     try {
-      await callTask('my-intensive-job.handler', 'zanix.worker.intensive', { message: 'hi' })
+      await callTask('my-intensive-job.handler', 'zanix.worker.intensive', {
+        message: 'hi',
+      })
       assert(true)
     } finally {
       Deno.env.delete('id')
@@ -70,7 +78,9 @@ Deno.test({
   fn: async () => {
     Deno.env.set('id', 'my-handler-cron')
     try {
-      await callTask('my-handler-cron.handler', 'zanix.worker.soft', { message: 'hi' })
+      await callTask('my-handler-cron.handler', 'zanix.worker.soft', {
+        message: 'hi',
+      })
       assert(true)
     } finally {
       Deno.env.delete('id')
@@ -87,7 +97,9 @@ Deno.test({
     Deno.env.delete('id')
 
     // Should not throw, and should not attempt provider resolution or the stdout write below.
-    await callTask('my-handler-cron.handler', 'zanix.worker.soft', { message: 'hi' })
+    await callTask('my-handler-cron.handler', 'zanix.worker.soft', {
+      message: 'hi',
+    })
     assert(true)
   },
 })

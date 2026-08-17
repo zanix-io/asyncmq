@@ -63,7 +63,9 @@ registerCronJob({
   },
 })
 
-@Subscriber({ queue: { topic: 'extra-process-queue', execution: 'extra-process' } })
+@Subscriber({
+  queue: { topic: 'extra-process-queue', execution: 'extra-process' },
+})
 export class _Subscriber extends ZanixSubscriber {
   protected async onmessage(args: { message: string }) {
     if (Deno.env.get('id') !== 'my-custom-job') return

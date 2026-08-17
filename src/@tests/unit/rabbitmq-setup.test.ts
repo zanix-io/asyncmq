@@ -7,8 +7,8 @@ import { SUBSCRIBERS_METADATA_KEY } from 'utils/constants.ts'
 
 // Regression test for a real incident: `SUBSCRIBERS_METADATA_KEY` is a fixed, package-wide
 // constant — with no `project` prefix, every service sharing one Redis instance (a common setup
-// across a fleet of microservices, e.g. the same Redis Cloud instance for several `AeraTech`
-// services) reads and writes the *same* key for its queue-options cache. Whichever service last
+// across a fleet of microservices, e.g. the same Redis Cloud instance for several services)
+// reads and writes the *same* key for its queue-options cache. Whichever service last
 // called `setup()` clobbers the others' stored options, so the next service's
 // `consumeAllMessages(fullQueuePath, oldOptions)` call (in the "Update Queues" branch below) ends
 // up asserting its own, correctly-named queue with a *foreign* `deadLetterRoutingKey` — which
@@ -33,6 +33,6 @@ Deno.test(
     })
 
     const bareKey = SUBSCRIBERS_METADATA_KEY['main-process']
-    assertEquals(deletedKeys, [`${project}:${bareKey}`])
+    assertEquals(deletedKeys, [`${project()}:${bareKey}`])
   },
 )

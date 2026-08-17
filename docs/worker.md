@@ -98,7 +98,9 @@ reference.
 ```ts
 import { Subscriber, ZanixSubscriber } from 'jsr:@zanix/asyncmq@latest'
 
-@Subscriber({ queue: { topic: 'extra-process-queue', execution: 'extra-process' } })
+@Subscriber({
+  queue: { topic: 'extra-process-queue', execution: 'extra-process' },
+})
 export class _Subscriber extends ZanixSubscriber {
   protected async onmessage(args: { message: string }) {
   }

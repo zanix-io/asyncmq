@@ -8,7 +8,9 @@ import type { SubscriberMetadata } from 'typings/queues.ts'
 console.error = () => {}
 
 const mainProcessSubscribers = () =>
-  ProgramModule.registry.get<SubscriberMetadata[]>(SUBSCRIBERS_METADATA_KEY['main-process']) || []
+  ProgramModule.registry.get<SubscriberMetadata[]>(
+    SUBSCRIBERS_METADATA_KEY['main-process'],
+  ) || []
 
 Deno.test('Subscriber: registers a route using the bare-string shorthand', () => {
   @Subscriber('unit-test-string-route')

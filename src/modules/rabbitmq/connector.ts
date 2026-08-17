@@ -69,8 +69,12 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
     } = {},
   ): Promise<ConsumeMessage[]> {
     await this.isReady
-    const { filter = () => true, channel = await this.createChannel(), isInternal, ...opts } =
-      options
+    const {
+      filter = () => true,
+      channel = await this.createChannel(),
+      isInternal,
+      ...opts
+    } = options
     const fullQueuePath = isInternal ? qPath(queue) : queue
     const { messageCount } = await channel.assertQueue(fullQueuePath, opts)
     const messages: ConsumeMessage[] = []
@@ -90,8 +94,9 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
           channel.ack(msg)
         }
         if (received === messageCount) {
-          if (!options.channel) channel.close().finally(() => resolve(messages))
-          else resolve(messages)
+          if (!options.channel) {
+            channel.close().finally(() => resolve(messages))
+          } else resolve(messages)
         }
       })
     })
@@ -103,7 +108,9 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
     this.#connection.on('close', () => {
       this.#connected = false
     })
-    logger.success(`RabbitMQ Connected Successfully through '${this.name}' class`)
+    logger.success(
+      `RabbitMQ Connected Successfully through '${this.name}' class`,
+    )
     this.#connected = true
   }
 

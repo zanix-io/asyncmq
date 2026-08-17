@@ -5,7 +5,9 @@ import { Buffer } from 'node:buffer'
 console.info = () => {}
 
 Deno.test('RabbitMQ connector should send and receive a message', async () => {
-  const connector = new ZanixRabbitMQConnector({ uri: 'amqp://guest:guest@localhost:5672/' })
+  const connector = new ZanixRabbitMQConnector({
+    uri: 'amqp://guest:guest@localhost:5672/',
+  })
   await connector.isReady
   assert(connector.isHealthy())
   const channel = await connector.createChannel()
@@ -38,11 +40,15 @@ Deno.test('RabbitMQ connector should send and receive a message', async () => {
 Deno.test({
   name: 'RabbitMQ connector should consume all messages from an empty queue without waiting',
   fn: async () => {
-    const connector = new ZanixRabbitMQConnector({ uri: 'amqp://guest:guest@localhost:5672/' })
+    const connector = new ZanixRabbitMQConnector({
+      uri: 'amqp://guest:guest@localhost:5672/',
+    })
     await connector.isReady
 
     const queue = 'tasks-empty'
-    const messages = await connector.consumeAllMessages(queue, { autoDelete: true })
+    const messages = await connector.consumeAllMessages(queue, {
+      autoDelete: true,
+    })
 
     assertEquals(messages, [])
 
@@ -54,7 +60,9 @@ Deno.test({
   name:
     'RabbitMQ connector should consume all messages using a caller-provided channel without closing it',
   fn: async () => {
-    const connector = new ZanixRabbitMQConnector({ uri: 'amqp://guest:guest@localhost:5672/' })
+    const connector = new ZanixRabbitMQConnector({
+      uri: 'amqp://guest:guest@localhost:5672/',
+    })
     await connector.isReady
     const channel = await connector.createChannel()
 
@@ -76,7 +84,9 @@ Deno.test({
 })
 
 Deno.test('RabbitMQ connector should consume all messages ', async () => {
-  const connector = new ZanixRabbitMQConnector({ uri: 'amqp://guest:guest@localhost:5672/' })
+  const connector = new ZanixRabbitMQConnector({
+    uri: 'amqp://guest:guest@localhost:5672/',
+  })
   await connector.isReady
   const channel = await connector.createChannel()
 

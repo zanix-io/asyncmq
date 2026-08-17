@@ -47,14 +47,21 @@ Deno.test({
     Deno.env.set('AMQP_URI', 'amqp://guest:guest@localhost:5672/')
     await import('modules/core.ts')
     await import('./job.defs.ts')
-    setTaskerUrl(new URL('./internal-process.fixture.ts', import.meta.url).href)
+    setTaskerUrl(
+      new URL('./internal-process.fixture.ts', import.meta.url).href,
+    )
 
-    const worker = ProgramModule.getProviders().get<ZanixCoreWorkerProvider>('worker')
+    const worker = ProgramModule.getProviders().get<ZanixCoreWorkerProvider>(
+      'worker',
+    )
 
     const response = await new Promise((resolve) => {
       assert(worker.runTask('my-moderate-task', {
         callback: (r) => {
-          assertEquals(r.response.message, r.response.context.payload.body.message)
+          assertEquals(
+            r.response.message,
+            r.response.context.payload.body.message,
+          )
           assertEquals(r.response.context.queue, 'zanix.worker.moderate')
           resolve(r.response.message)
         },

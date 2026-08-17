@@ -12,16 +12,17 @@
 2. [Features](#-features)
 3. [Installation](#-installation)
 4. [Basic Usage](#-basic-usage)
-5. [Queue Handlers](#-queue-handlers)
-6. [Worker & Task Execution](#-worker--task-execution)
-7. [Environment Variables](#-environment-variables)
-8. [Encryption](#-encryption)
-9. [Connector Auto-Loading](#-connector-auto-loading)
-10. [Documentation](#-documentation)
-11. [Contributing](#-contributing)
-12. [Changelog](#-changelog)
-13. [License](#-license)
-14. [Resources](#-resources)
+5. [Dead Letter Queue Reprocessing](#-dead-letter-queue-reprocessing)
+6. [Queue Handlers](#-queue-handlers)
+7. [Worker & Task Execution](#-worker--task-execution)
+8. [Environment Variables](#-environment-variables)
+9. [Encryption](#-encryption)
+10. [Connector Auto-Loading](#-connector-auto-loading)
+11. [Documentation](#-documentation)
+12. [Contributing](#-contributing)
+13. [Changelog](#-changelog)
+14. [License](#-license)
+15. [Resources](#-resources)
 
 ---
 
@@ -189,7 +190,9 @@ Zanix-managed class, reach it through `ProgramModule` instead:
 import { ProgramModule } from '@zanix/server'
 import type { ZanixCoreAsyncMQProvider } from 'jsr:@zanix/asyncmq@latest'
 
-const asyncmq = ProgramModule.providers.get<ZanixCoreAsyncMQProvider>('asyncmq')
+const asyncmq = ProgramModule.providers.get<ZanixCoreAsyncMQProvider>(
+  'asyncmq',
+)
 
 await asyncmq.enqueue('email.send', { email: 'user@example.com' }, {
   isInternal: true,
@@ -208,11 +211,40 @@ message for future delivery via the provider's `schedule` method, or register a 
 retry/DLQ system as regular messages.
 
 ```ts
-await asyncmq.schedule('email.send', { email: 'user@example.com' }, { delay: 60_000 }) // 1 minute
+await asyncmq.schedule('email.send', { email: 'user@example.com' }, {
+  delay: 60_000,
+}) // 1 minute
 ```
 
 See **[Message Scheduling & Cron Jobs](./docs/scheduling-and-cron.md)** for the full reference
 (scheduling options, cron job definition, execution metadata, retries, use cases).
+
+---
+
+## 💀 Dead Letter Queue Reprocessing
+
+`@zanix/asyncmq/dlq` — a separate subpath, so importing the rest of `@zanix/asyncmq` never pulls in
+`@zanix/datamaster`'s module graph — provides `registerDLQProcessor`: a thin wrapper over
+`registerCronJob` that reprocesses `@zanix/datamaster`'s `DLQProvider` entries, distinct from
+RabbitMQ's own broker-native dead-letter mechanism (`ZanixAsyncMQProvider.requeueDeadLetters`,
+mentioned above).
+
+```ts
+import { registerDLQProcessor } from '@zanix/asyncmq/dlq'
+
+registerDLQProcessor('payment.process', {
+  name: 'retry-failed-payments',
+  schedule: '0 */5 * * * *', // every 5 minutes
+  handler: async function (entry) {
+    await this.providers.get(PaymentService).retry(entry.payload)
+  },
+})
+```
+
+See **[Dead Letter Queue Reprocessing](./docs/dlq-reprocessing.md)** for the full reference (what
+happens on every tick, `DLQProcessorOptions`, testing without a live broker) and
+`@zanix/datamaster`'s `docs/DLQ.md` for `DLQProvider`'s own lifecycle, `registerDLQModel`, and
+payload protection.
 
 ---
 
@@ -314,6 +346,10 @@ Full reference guides live under [`docs/`](./docs):
 - **[Worker & Task Execution](./docs/worker.md)** — Jobs vs Tasks, predefined queues,
   `executeGeneralTask`, and running the worker (through `@zanix/core` or with your own
   internal-process/extra-process entrypoints).
+- **[Dead Letter Queue Reprocessing](./docs/dlq-reprocessing.md)** — `registerDLQProcessor`
+  (`@zanix/asyncmq/dlq`), `DLQProcessorOptions`, testing without a live broker. See also
+  `@zanix/datamaster`'s `docs/DLQ.md` for `DLQProvider`'s own lifecycle, `registerDLQModel`, and
+  payload protection.
 
 ---
 

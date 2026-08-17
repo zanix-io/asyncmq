@@ -29,7 +29,9 @@ const startMode = isInternal ? 'lazy' : 'postBoot'
 registerCoreConnectorSlot('asyncmq', ZanixAsyncmqConnector, {
   sourcePackage: '@zanix/asyncmq/core',
 })
-registerCoreProviderSlot('asyncmq', ZanixAsyncMQProvider, { sourcePackage: '@zanix/asyncmq/core' })
+registerCoreProviderSlot('asyncmq', ZanixAsyncMQProvider, {
+  sourcePackage: '@zanix/asyncmq/core',
+})
 
 /** Connector DSL definition */
 const registerConnector = () => {

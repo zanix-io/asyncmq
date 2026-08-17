@@ -20,7 +20,13 @@ export class IntensiveSubscriber extends ZanixSubscriber {
     { $args, $taskId }: { $args: MessageQueue; $taskId: string },
     { context, attempt }: MessageInfo,
   ) {
-    await processor({ taskId: $taskId, attempt, context, args: $args, queue: topic })
+    await processor({
+      taskId: $taskId,
+      attempt,
+      context,
+      args: $args,
+      queue: topic,
+    })
   }
 }
 

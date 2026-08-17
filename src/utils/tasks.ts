@@ -5,7 +5,10 @@ import { type MessageQueue, ProgramModule } from '@zanix/server'
 import { TASKS_METADATA_KEY } from 'utils/constants.ts'
 import { InternalError } from '@zanix/errors'
 
-export const registerTask = <A extends MessageQueue, T>(jobId: string, task: Job<A, T>) => {
+export const registerTask = <A extends MessageQueue, T>(
+  jobId: string,
+  task: Job<A, T>,
+) => {
   const tasks = ProgramModule.registry.get<TasksRegistry<A, T>>(TASKS_METADATA_KEY) || {}
   const taskId = `${jobId}.handler`
   tasks[taskId] = task
@@ -15,8 +18,13 @@ export const registerTask = <A extends MessageQueue, T>(jobId: string, task: Job
   return taskId
 }
 
-export const getTask = <A extends MessageQueue, T>(taskId: string, queue: string) => {
-  const tasks = ProgramModule.registry.get<TasksRegistry<A, T>>(TASKS_METADATA_KEY)
+export const getTask = <A extends MessageQueue, T>(
+  taskId: string,
+  queue: string,
+) => {
+  const tasks = ProgramModule.registry.get<TasksRegistry<A, T>>(
+    TASKS_METADATA_KEY,
+  )
   const task = tasks?.[taskId]
   if (task) return task
 

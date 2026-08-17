@@ -23,7 +23,9 @@ const registerProvider = () => {
 }
 
 // `@zanix/asyncmq` owns the `'worker'` provider slot.
-registerCoreProviderSlot('worker', ZanixWorkerProvider, { sourcePackage: '@zanix/asyncmq/core' })
+registerCoreProviderSlot('worker', ZanixWorkerProvider, {
+  sourcePackage: '@zanix/asyncmq/core',
+})
 
 /**
  * Core Worker provider loader for Zanix.

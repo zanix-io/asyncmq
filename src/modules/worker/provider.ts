@@ -89,7 +89,10 @@ export class ZanixCoreWorkerProvider extends ZanixWorkerProvider {
    * @param {Message} [args] - Runtime arguments.
    * @returns {Message | null} Final arguments to be used.
    */
-  #getJobArgs(job: JobRegistry[keyof JobRegistry], args?: MessageQueue): MessageQueue | null {
+  #getJobArgs(
+    job: JobRegistry[keyof JobRegistry],
+    args?: MessageQueue,
+  ): MessageQueue | null {
     if (job.args && typeof job.args === 'object' && '$args' in job.args) {
       job.args.$args = args || job.args.$args
     } else {
@@ -147,7 +150,9 @@ export class ZanixCoreWorkerProvider extends ZanixWorkerProvider {
       return false
     }
 
-    const provider = this.providers.get<ZanixCoreAsyncMQProvider>(options.provider ?? 'asyncmq')
+    const provider = this.providers.get<ZanixCoreAsyncMQProvider>(
+      options.provider ?? 'asyncmq',
+    )
 
     const { args, contextId, settings } = options
 
@@ -212,7 +217,10 @@ export class ZanixCoreWorkerProvider extends ZanixWorkerProvider {
       return false
     }
 
-    const context = prepareContext(this.getContext, contextId) as HandlerContext
+    const context = prepareContext(
+      this.getContext,
+      contextId,
+    ) as HandlerContext
 
     context.payload.body = jobArgs.$args
 
@@ -254,8 +262,17 @@ export class ZanixCoreWorkerProvider extends ZanixWorkerProvider {
       this.#localQueues[queue] = provider
     }
 
-    provider.task(processor, { metaUrl: taskerUrl, onFinish: callback, timeout })
-      .invoke({ taskId: jobArgs.$taskId, context, args: jobArgs.$args || null, queue })
+    provider.task(processor, {
+      metaUrl: taskerUrl,
+      onFinish: callback,
+      timeout,
+    })
+      .invoke({
+        taskId: jobArgs.$taskId,
+        context,
+        args: jobArgs.$args || null,
+        queue,
+      })
 
     return true
   }

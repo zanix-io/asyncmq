@@ -10,7 +10,10 @@ Deno.test({
     const queue = 'test-queue'
     const provider = await registerProvider()
     setTimeout(() => {
-      provider.enqueue(queue, { message: 'hello queue' }, { isInternal: true, contextId: '' })
+      provider.enqueue(queue, { message: 'hello queue' }, {
+        isInternal: true,
+        contextId: '',
+      })
     }, 100)
 
     await registerQueue(queue)
@@ -33,7 +36,9 @@ Deno.test({
       provider.sendMessage(`none.${queue}`, message, { contextId: '' })
     }, 100)
 
-    const { calls } = await registerQueue(queue, { includeInGlobalExchange: true })
+    const { calls } = await registerQueue(queue, {
+      includeInGlobalExchange: true,
+    })
     assertEquals(calls, 4)
   },
 })
@@ -158,7 +163,9 @@ Deno.test({
   fn: async () => {
     const provider = await registerProvider()
 
-    const result = await provider.enqueue('raw-external-queue', { message: 'hello queue' }, {
+    const result = await provider.enqueue('raw-external-queue', {
+      message: 'hello queue',
+    }, {
       contextId: '',
     })
 
@@ -205,7 +212,10 @@ Deno.test({
     const provider = await registerProvider()
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
-    provider.enqueue(queue, { message: 'hello queue' }, { isInternal: true, contextId: '' })
+    provider.enqueue(queue, { message: 'hello queue' }, {
+      isInternal: true,
+      contextId: '',
+    })
 
     const { calls } = await secondRound
     assertEquals(calls, 1)

@@ -16,17 +16,28 @@ import {
 import { readConfig } from '@zanix/helpers'
 import logger from '@zanix/logger'
 
-export const project = readConfig().name || ''
+let cachedProject: string | undefined
+
+/**
+ * The real project name — read lazily, on first actual use, not at module load. Merely importing
+ * this module (e.g. transitively, through `@zanix/server`'s own real exports) must never require
+ * a `deno.json`/`.jsonc` to already exist. Memoized after the first call, so this is as cheap as
+ * the old top-level read once a caller actually needs it.
+ */
+export const project = (): string => cachedProject ??= readConfig().name || ''
 
 export const deadletterOpts = {
   messageTtl: 30 * 24 * 60 * 60 * 1000, // expire in 30 days
   durable: true,
 }
-export const schedulerOpts = { durable: true, deadLetterExchange: SCHEDULER_EXCHANGE }
+export const schedulerOpts = {
+  durable: true,
+  deadLetterExchange: SCHEDULER_EXCHANGE,
+}
 export const dlqPath = (queue: string) => `${queue}.dlq` // deadletter queue
 export const schqPath = (queue: string) => `${queue}.schq` // scheduled queue
 export const cronqPath = (queue: string) => `${queue}.cron` // cron queue
-export const qPath = (queue: string) => queue ? `${project}.${queue}` : project
+export const qPath = (queue: string) => queue ? `${project()}.${queue}` : project()
 
 const checkQueue = async (
   connector: ZanixRabbitMQConnector,
@@ -35,14 +46,20 @@ const checkQueue = async (
   const channel = await connector.createChannel()
   channel.on('error', () => {})
   channel.on('close', () => {})
-  const q = await channel.checkQueue(queueName).catch((e: { code?: number }) => {
-    if (e.code === 404) {
-      return { consumerCount: 0, messageCount: 0 }
-    }
-    throw e
-  })
+  const q = await channel.checkQueue(queueName).catch(
+    (e: { code?: number }) => {
+      if (e.code === 404) {
+        return { consumerCount: 0, messageCount: 0 }
+      }
+      throw e
+    },
+  )
   await channel.close().catch(() => {})
-  return { isUnused: q.consumerCount === 0, isEmpty: q.messageCount === 0, queueName }
+  return {
+    isUnused: q.consumerCount === 0,
+    isEmpty: q.messageCount === 0,
+    queueName,
+  }
 }
 
 /**
@@ -81,7 +98,7 @@ export async function setup(
   // (a real, confirmed incident: two services sharing one Redis instance, each declaring the
   // other's dead-letter routing key on its own correctly-named queue, causing RabbitMQ to reject
   // the redeclare with `406 PRECONDITION-FAILED`).
-  const storageKey = subscriberKey && `${project}:${subscriberKey}`
+  const storageKey = subscriberKey && `${project()}:${subscriberKey}`
 
   if (!subscribers) {
     if (storageKey) kvLocal.delete(storageKey)
@@ -90,18 +107,25 @@ export async function setup(
 
   const setupChannel = await connector.createChannel()
 
-  const storagedQueues = await getStoragedQueueOptions<Record<string, string>>(storageKey, {
-    cache,
-    kvLocal,
-  })
+  const storagedQueues = await getStoragedQueueOptions<Record<string, string>>(
+    storageKey,
+    {
+      cache,
+      kvLocal,
+    },
+  )
   const queueOptions: typeof storagedQueues = {}
   //--------------------------
   // Create global exchanges
   //--------------------------
   await Promise.all([
     setupChannel.assertExchange(GLOBAL_EXCHANGE, 'topic', { durable: true }),
-    setupChannel.assertExchange(DEADLETTER_EXCHANGE, 'direct', { durable: true }),
-    setupChannel.assertExchange(SCHEDULER_EXCHANGE, 'direct', { durable: true }),
+    setupChannel.assertExchange(DEADLETTER_EXCHANGE, 'direct', {
+      durable: true,
+    }),
+    setupChannel.assertExchange(SCHEDULER_EXCHANGE, 'direct', {
+      durable: true,
+    }),
   ])
 
   const queuesPaths: string[] = []
@@ -148,7 +172,11 @@ export async function setup(
       await setupChannel.deleteQueue(fullQueuePath, { ifEmpty: true })
       await setupChannel.assertQueue(fullQueuePath, opts)
       for (const message of messages) {
-        setupChannel.sendToQueue(fullQueuePath, message.content, message.properties)
+        setupChannel.sendToQueue(
+          fullQueuePath,
+          message.content,
+          message.properties,
+        )
       }
     } else {
       await setupChannel.assertQueue(fullQueuePath, opts)
@@ -159,7 +187,12 @@ export async function setup(
     //--------------------------
 
     // Bind global exchange
-    const globalExchangeBindings = [fullQueuePath, project, '__all__', `__all__.${queue}`]
+    const globalExchangeBindings = [
+      fullQueuePath,
+      project(),
+      '__all__',
+      `__all__.${queue}`,
+    ]
     const bindingAction = includeInGlobalExchange ? 'bindQueue' : 'unbindQueue'
 
     await Promise.all(
@@ -180,7 +213,11 @@ export async function setup(
       deadLetterRoutingKey: fullQueuePath,
     })
     await setupChannel.bindQueue(schq, SCHEDULER_EXCHANGE, schq)
-    await setupChannel.bindQueue(fullQueuePath, SCHEDULER_EXCHANGE, fullQueuePath)
+    await setupChannel.bindQueue(
+      fullQueuePath,
+      SCHEDULER_EXCHANGE,
+      fullQueuePath,
+    )
 
     // Bind cron
     const cronq = schqPath(cronqPath(fullQueuePath))
@@ -189,7 +226,11 @@ export async function setup(
       deadLetterRoutingKey: fullQueuePath,
     })
     await setupChannel.bindQueue(cronq, SCHEDULER_EXCHANGE, cronq)
-    await setupChannel.bindQueue(fullQueuePath, SCHEDULER_EXCHANGE, fullQueuePath)
+    await setupChannel.bindQueue(
+      fullQueuePath,
+      SCHEDULER_EXCHANGE,
+      fullQueuePath,
+    )
 
     //--------------------------
     // Prepare processor
@@ -197,10 +238,17 @@ export async function setup(
     await Promise.all([...Array(consumerChannels).keys()].map(async () => {
       const consumerChannel = await connector.createChannel()
       consumerChannel.on('error', (e: { code?: number }) => {
-        logger.error(`Error occurred on the queue channel for queue: ${queue}`, {
-          cause: e,
-          meta: { source: 'zanix', queue, errorCode: e.code || 'UNKNOWN_ERROR' },
-        })
+        logger.error(
+          `Error occurred on the queue channel for queue: ${queue}`,
+          {
+            cause: e,
+            meta: {
+              source: 'zanix',
+              queue,
+              errorCode: e.code || 'UNKNOWN_ERROR',
+            },
+          },
+        )
       })
       consumerChannel.on('close', () => {
         logger.warn(`Queue channel has been closed for queue: ${queue}`, {

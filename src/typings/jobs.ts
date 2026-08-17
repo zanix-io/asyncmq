@@ -49,7 +49,10 @@ export type Job<A extends MessageQueue = MessageQueue, TResult = unknown> = (
  * This structure enables efficient lookup and prevents
  * duplication of the job identifier.
  */
-export type JobRegistry = Record<string, Omit<BaseJob, 'name'> & { queue: string }>
+export type JobRegistry = Record<
+  string,
+  Omit<BaseJob, 'name'> & { queue: string }
+>
 
 /**
  * Describes how a process is published and executed within the system.
@@ -140,4 +143,6 @@ export type BaseJob<A extends MessageQueue = MessageQueue> = {
  * This is used to register and route jobs
  * within the system based on their name and execution weight.
  */
-export type JobDefinition<A extends MessageQueue, T> = BaseJob<A> & JobProcess<A, T>
+export type JobDefinition<A extends MessageQueue, T> =
+  & BaseJob<A>
+  & JobProcess<A, T>

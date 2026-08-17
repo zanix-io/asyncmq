@@ -122,7 +122,11 @@ Deno.test(
     const msg = await createMsg(
       { hello: 'world' },
       {
-        [MESSAGE_HEADERS.context]: await encode({ id: 'ctx', locals: {}, payload: {} }, 'secret'),
+        [MESSAGE_HEADERS.context]: await encode({
+          id: 'ctx',
+          locals: {},
+          payload: {},
+        }, 'secret'),
         [MESSAGE_HEADERS.maxRetries]: 3,
         'x-attempt': 0,
       },
@@ -161,7 +165,11 @@ Deno.test('processorHandler: NACKs when attempt >= maxRetries', async () => {
   const msg = await createMsg(
     { foo: 'bar' },
     {
-      [MESSAGE_HEADERS.context]: await encode({ id: 'ctx2', payload: {}, locals: {} }, 'secret'),
+      [MESSAGE_HEADERS.context]: await encode({
+        id: 'ctx2',
+        payload: {},
+        locals: {},
+      }, 'secret'),
       [MESSAGE_HEADERS.maxRetries]: 1,
       'x-attempt': 1,
     },
@@ -200,7 +208,11 @@ Deno.test('processorHandler: uses custom backoffStrategy from retryConfig', asyn
   )
 
   const msg = await createMsg({ hi: 'there' }, {
-    [MESSAGE_HEADERS.context]: await encode({ id: 'ctx3', payload: {}, locals: {} }, 'secret'),
+    [MESSAGE_HEADERS.context]: await encode({
+      id: 'ctx3',
+      payload: {},
+      locals: {},
+    }, 'secret'),
     'x-attempt': 1,
   })
 
@@ -236,7 +248,11 @@ Deno.test(
     }
 
     const msg = await createMsg({ test: 1 }, {
-      [MESSAGE_HEADERS.context]: await encode({ id: 'ctx4', payload: {}, locals: {} }, 'secret'),
+      [MESSAGE_HEADERS.context]: await encode({
+        id: 'ctx4',
+        payload: {},
+        locals: {},
+      }, 'secret'),
       'x-attempt': 0,
     })
 

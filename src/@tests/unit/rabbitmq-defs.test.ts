@@ -18,11 +18,14 @@ Deno.test({
       Deno.env.set('ZANIX_WORKER_EXECUTION', 'internal-process')
       Deno.env.delete('AMQP_URI')
 
-      const mod = await import('modules/rabbitmq/defs.ts?probe=internal-process-no-amqp')
+      const mod = await import(
+        'modules/rabbitmq/defs.ts?probe=internal-process-no-amqp'
+      )
       assertEquals(mod.default, undefined)
     } finally {
-      if (originalExecution === undefined) Deno.env.delete('ZANIX_WORKER_EXECUTION')
-      else Deno.env.set('ZANIX_WORKER_EXECUTION', originalExecution)
+      if (originalExecution === undefined) {
+        Deno.env.delete('ZANIX_WORKER_EXECUTION')
+      } else Deno.env.set('ZANIX_WORKER_EXECUTION', originalExecution)
       if (originalAmqpUri === undefined) Deno.env.delete('AMQP_URI')
       else Deno.env.set('AMQP_URI', originalAmqpUri)
     }

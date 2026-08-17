@@ -92,7 +92,10 @@ Deno.test('ZanixSubscriber: wraps a failed RTO validation as an ApplicationError
 
   let caught: unknown
   try {
-    await (subscriber.onmessage({ message: 12345 }, fakeInfo(context)) as unknown as Promise<void>)
+    await (subscriber.onmessage(
+      { message: 12345 },
+      fakeInfo(context),
+    ) as unknown as Promise<void>)
   } catch (error) {
     caught = error
   }

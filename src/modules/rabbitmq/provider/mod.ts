@@ -1,4 +1,4 @@
-import type { Execution, SubscriberMetadata } from 'typings/queues.ts'
+import type { SubscriberMetadata, WorkerExecution } from 'typings/queues.ts'
 import type { ZanixRabbitMQConnector } from '../connector.ts'
 import type { CronRegistry } from 'typings/crons.ts'
 import type { Channel } from 'amqp'
@@ -11,17 +11,18 @@ import {
 } from '@zanix/server'
 import {
   CRONS_METADATA_KEY,
+  DATA_AMQP_SECRET_ENV,
   GLOBAL_EXCHANGE,
   MESSAGE_HEADERS,
   SCHEDULER_EXCHANGE,
-  SUBSCRIBERS_METADATA_KEY,
 } from 'utils/constants.ts'
+import { resolveSubscribersMetadataKey, resolveWorkerExecution } from 'modules/worker/mod.ts'
 import {
   cronqPath,
-  deadletterOpts,
+  DEADLETTER_OPTS,
   dlqPath,
   qPath,
-  schedulerOpts,
+  SCHEDULER_OPTS,
   schqPath,
   setup,
 } from './setup.ts'
@@ -29,6 +30,16 @@ import { decode, encode, prepareOptions } from './messages.ts'
 import { ApplicationError } from '@zanix/errors'
 import { generateUUID } from '@zanix/helpers'
 import { nextCronDate } from '@zanix/helpers'
+import logger from '@zanix/logger'
+
+/**
+ * Fallback used when `DATA_AMQP_SECRET` isn't set — a real, deliberate fallback (message
+ * send/receive still needs *some* key to encrypt/decrypt with), not a placeholder that was meant
+ * to be replaced before shipping. Hardcoded and public (checked into source), so any message body
+ * this instance encrypts is only as confidential as this literal — see the `logger.high` call
+ * below, which exists specifically to surface that whenever this fallback is actually in use.
+ */
+const DEFAULT_AMQP_SECRET = 'zanix_default_secret'
 
 /**
  * ZanixAsyncMQProvider is a provider class responsible for managing
@@ -48,7 +59,7 @@ import { nextCronDate } from '@zanix/helpers'
  */
 export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   #connector: ZanixRabbitMQConnector
-  #execution: Execution
+  #execution: WorkerExecution
   #isConfigured!: Promise<boolean>
   #notifierChannel!: Channel
   #secret: string
@@ -56,9 +67,16 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   /** Resolves the connector and secret, then kicks off async setup and cron execution. */
   constructor(contextId?: string) {
     super(contextId)
-    this.#secret = Deno.env.get('DATA_AMQP_SECRET') || 'zanix_default_secret'
-    this.#execution = Deno.env.get('ZANIX_WORKER_EXECUTION') as Execution ||
-      'main-process'
+    const configuredSecret = Deno.env.get(DATA_AMQP_SECRET_ENV)
+    if (!configuredSecret) {
+      logger.high(
+        'DATA_AMQP_SECRET is not set — falling back to a hardcoded, publicly-known encryption ' +
+          'key. Message bodies (including anything parked in the dead-letter queue) are not ' +
+          'confidential until this is configured.',
+      )
+    }
+    this.#secret = configuredSecret || DEFAULT_AMQP_SECRET
+    this.#execution = resolveWorkerExecution()
     this.#connector = this.use<ZanixRabbitMQConnector>(false)
     const crons = this.registry.get<CronRegistry[]>(CRONS_METADATA_KEY)
     this.#isConfigured = new Promise((resolve) =>
@@ -87,7 +105,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    */
   async #setup(crons?: CronRegistry[]) {
     this.#notifierChannel = await this.#connector.createChannel()
-    const subsMetaKey = SUBSCRIBERS_METADATA_KEY[this.#execution]
+    const subsMetaKey = resolveSubscribersMetadataKey(this.#execution)
     const subscribers = this.registry.get<SubscriberMetadata[]>(
       subsMetaKey,
     )
@@ -126,7 +144,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
       const schedulerQueue = schqPath(cronQueue)
       // Process the cron scheduled messages to rewrite them.
       await this.#connector.consumeAllMessages(schedulerQueue, {
-        ...schedulerOpts,
+        ...SCHEDULER_OPTS,
         deadLetterRoutingKey: fullQueuePath,
       })
       if (!isActive) return
@@ -227,7 +245,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     const queuePath = qPath(queue)
     const messages = await this.#connector.consumeAllMessages(
       dlqPath(queuePath),
-      deadletterOpts,
+      DEADLETTER_OPTS,
     )
 
     return Promise.all(messages.map((message) => {

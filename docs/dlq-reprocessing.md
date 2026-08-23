@@ -7,7 +7,7 @@ never pulls in `@zanix/datamaster`'s module graph for apps that don't use this f
 
 `DLQProvider` itself is a **passive store** — it never claims or interprets entries on its own.
 `registerDLQProcessor` is the mechanism that actually drives reprocessing: a thin wrapper over
-`registerCronJob`, direct and synchronous. See `@zanix/datamaster`'s **`docs/DLQ.md`** for
+`registerCronJob`, direct and synchronous. See `@zanix/datamaster`'s **`docs/dlq.md`** for
 `DLQProvider`'s own lifecycle (`push`/`get`/`list`/`claim`/...), `registerDLQModel`, and payload
 protection — this doc only covers the reprocessing bridge that lives here.
 

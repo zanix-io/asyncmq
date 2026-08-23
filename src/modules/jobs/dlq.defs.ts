@@ -5,6 +5,7 @@ import type { DLQEntryAttrs } from '@zanix/database'
 
 import { DLQProvider } from '@zanix/database'
 import { registerCronJob } from './cron.defs.ts'
+import logger from '@zanix/logger'
 
 /**
  * Turns a caught `error` into the plain `{name, message, stack?}` shape `DLQProvider.fail()`
@@ -90,6 +91,12 @@ export const registerDLQProcessor = (
         await handler.call(this, entry)
         await dlq.complete(entry._id, { leaseOwner })
       } catch (error) {
+        // `dlq.fail()` is a passive store write — it never logs on its own, so without this the
+        // reprocessing failure is invisible to anything short of inspecting the DLQ entry directly.
+        logger.error(
+          `DLQ reprocessing failed for entry "${entry._id}" (processType: "${processType}")`,
+          error,
+        )
         await dlq.fail(entry._id, { leaseOwner, error: toErrorInfo(error) })
       }
     },

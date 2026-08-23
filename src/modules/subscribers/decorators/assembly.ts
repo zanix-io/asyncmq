@@ -15,6 +15,7 @@ import {
 import { InternalError } from '@zanix/errors'
 import { ZanixSubscriber } from '../base.ts'
 import { SUBSCRIBERS_METADATA_KEY } from 'utils/constants.ts'
+import { resolveSubscribersMetadataKey } from 'modules/worker/mod.ts'
 
 /** Define decorator to register a queue */
 export function defineSubscriberDecorator(
@@ -41,7 +42,7 @@ export function defineSubscriberDecorator(
     }
   }
 
-  const subscriberKey = SUBSCRIBERS_METADATA_KEY[execution]
+  const subscriberKey = resolveSubscribersMetadataKey(execution)
 
   const subscribers = ProgramModule.registry.get<SubscriberMetadata[]>(subscriberKey) || []
   const extraProcessSubscribers = ProgramModule.registry.get<SubscriberMetadata[]>(

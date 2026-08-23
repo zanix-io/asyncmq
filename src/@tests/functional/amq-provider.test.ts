@@ -1,4 +1,5 @@
 import { assertAlmostEquals, assertEquals, assertRejects } from '@std/assert'
+import { stub } from '@std/testing/mock'
 import { registerProvider, registerQueue } from './__setup__.ts'
 import { ApplicationError } from '@zanix/errors'
 
@@ -219,5 +220,31 @@ Deno.test({
 
     const { calls } = await secondRound
     assertEquals(calls, 1)
+  },
+})
+
+// Regression coverage for the `DATA_AMQP_SECRET`-configured branch: every other test in this
+// file relies on `__setup__.ts`'s `dependencies()`, which never sets `DATA_AMQP_SECRET`, so the
+// constructor's "not set, fall back to the hardcoded default" branch is the only one any existing
+// test exercises. This is the missing counterpart — a real value IS configured, so the
+// `logger.high` "not confidential" warning must NOT fire.
+Deno.test({
+  sanitizeOps: false,
+  sanitizeResources: false,
+  name:
+    'ZanixRabbitMQ provider should not warn about a missing DATA_AMQP_SECRET when one is configured',
+  fn: async () => {
+    const original = Deno.env.get('DATA_AMQP_SECRET')
+    const errorLogs = stub(console, 'error')
+    try {
+      Deno.env.set('DATA_AMQP_SECRET', 'a-real-configured-secret')
+      await registerProvider()
+
+      assertEquals(errorLogs.calls.length, 0)
+    } finally {
+      errorLogs.restore()
+      if (original === undefined) Deno.env.delete('DATA_AMQP_SECRET')
+      else Deno.env.set('DATA_AMQP_SECRET', original)
+    }
   },
 })

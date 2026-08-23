@@ -1,56 +1,25 @@
 import { assertEquals, assertThrows } from '@std/assert'
+import { stub } from '@std/testing/mock'
 import { ProgramModule } from '@zanix/server'
 import { registerDLQProcessor } from 'modules/jobs/dlq.defs.ts'
+import { getTask } from 'utils/tasks.ts'
 import { CRONS_METADATA_KEY } from 'utils/constants.ts'
 
 console.error = () => {}
 
-// deno-lint-ignore no-explicit-any
-type CronRegistryEntry = [string, any]
-
-const getRegisteredCronJob = (name: string) => {
-  const crons = ProgramModule.registry.get<CronRegistryEntry[]>(CRONS_METADATA_KEY) || []
-  return crons.find(([registeredName]) => registeredName === name)?.[1]
+/** Same technique as the functional DLQ suite's `getRegisteredCronTask`, minus the real Mongo
+ * connector — resolves the real, registered cron task via `@zanix/asyncmq`'s own task registry. */
+const getRegisteredCronTask = (cronName: string) => {
+  // deno-lint-ignore no-explicit-any
+  const crons = ProgramModule.registry.get<[string, any][]>(CRONS_METADATA_KEY) || []
+  const entry = crons.find(([name]) => name === cronName)
+  if (!entry) throw new Error(`No cron job registered under "${cronName}"`)
+  const [, jobDef] = entry
+  return {
+    task: getTask(jobDef.args.$taskId, jobDef.queue),
+    args: jobDef.args.$args,
+  }
 }
-
-Deno.test('registerDLQProcessor wires a descriptor into a real cron job', () => {
-  try {
-    registerDLQProcessor('payment.process', {
-      name: 'reprocess-payment',
-      schedule: '0,30 * * * * *',
-      processingQueue: 'soft',
-      handler: () => {},
-    })
-
-    const cron = getRegisteredCronJob('dlq:reprocess-payment')
-    assertEquals(cron?.schedule, '0,30 * * * * *')
-    assertEquals(cron?.isActive, true)
-    // `registerCronJob` resolves `processingQueue: 'soft'` into a `queue: 'zanix.worker.soft'`
-    // string internally — this confirms the option actually reached the real registration call.
-    assertEquals(cron?.queue, 'zanix.worker.soft')
-    // The handler itself isn't stored inline — `registerCronJob` registers it as a separate task
-    // and stores only its id; a truthy `$taskId` confirms one was registered.
-    assertEquals(typeof cron?.args?.$taskId, 'string')
-  } finally {
-    ProgramModule.registry.delete(CRONS_METADATA_KEY)
-  }
-})
-
-Deno.test('registerDLQProcessor defaults isActive/processingQueue when omitted', () => {
-  try {
-    registerDLQProcessor('webhook.deliver', {
-      name: 'reprocess-webhook',
-      schedule: '0,30 * * * * *',
-      handler: () => {},
-    })
-
-    const cron = getRegisteredCronJob('dlq:reprocess-webhook')
-    assertEquals(cron?.isActive, true)
-    assertEquals(cron?.queue, 'zanix.worker.soft')
-  } finally {
-    ProgramModule.registry.delete(CRONS_METADATA_KEY)
-  }
-})
 
 Deno.test('registerDLQProcessor: throws when the underlying cron name is already taken', () => {
   try {
@@ -71,6 +40,59 @@ Deno.test('registerDLQProcessor: throws when the underlying cron name is already
       'Conflict: A Cron with the same name or identifier ("dlq:dup-processor") is already configured in the system.',
     )
   } finally {
+    ProgramModule.registry.delete(CRONS_METADATA_KEY)
+  }
+})
+
+Deno.test('registerDLQProcessor: logs a reprocessing failure before dlq.fail()', async () => {
+  const errorLogs = stub(console, 'error')
+  try {
+    const calls: string[] = []
+    const reprocessingError = new Error('reprocessing failed too')
+    const fakeEntry = { _id: 'dlq-entry-id', payload: {} }
+    const fakeDlq = {
+      claim: () => {
+        calls.push('claim')
+        return fakeEntry
+      },
+      complete: () => {
+        calls.push('complete')
+      },
+      fail: (id: string) => {
+        calls.push('fail')
+        // The failure must already have been logged by the time `fail()` runs.
+        assertEquals(errorLogs.calls.length, 1)
+        assertEquals(id, fakeEntry._id)
+      },
+    }
+
+    registerDLQProcessor('unit-dlq-reprocess-fail.process', {
+      name: 'unit-dlq-reprocess-fail',
+      schedule: '0,30 * * * * *',
+      handler: () => {
+        throw reprocessingError
+      },
+    })
+
+    const fakeThis = { providers: { get: () => fakeDlq } }
+    const { task, args } = getRegisteredCronTask('dlq:unit-dlq-reprocess-fail')
+    // deno-lint-ignore no-explicit-any
+    await (task as any).call(fakeThis, args)
+
+    assertEquals(calls, ['claim', 'fail'])
+    assertEquals(errorLogs.calls.length, 1)
+    assertEquals(
+      errorLogs.calls[0].args[1],
+      'DLQ reprocessing failed for entry "dlq-entry-id" (processType: "unit-dlq-reprocess-fail.process")',
+    )
+    // `logger.error` reformats the error before it reaches `console.error` — assert on the
+    // parts that matter (name/message) rather than object identity/shape.
+    assertEquals(
+      (errorLogs.calls[0].args[2] as { message: string }).message,
+      reprocessingError.message,
+    )
+  } finally {
+    errorLogs.restore()
     ProgramModule.registry.delete(CRONS_METADATA_KEY)
   }
 })

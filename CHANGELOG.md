@@ -5,7 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-08-23
+
+### Fixed
+
+- `deno lint`'s own `@zanix/utils` plugin (`deno-zanix-plugin`) is now version-pinned (`^3.0.0`),
+  matching every other `@zanix/utils` import in `deno.json` — it used to resolve unpinned, so a lint
+  run could silently pick up a newer, unreviewed plugin version.
+- **Subscriber metadata resolution silently failed for a provider running inside AsyncMQ's internal
+  worker thread**: `SUBSCRIBERS_METADATA_KEY[execution]` was indexed directly with
+  `resolveWorkerExecution()`'s real runtime value, which can genuinely be `'internal-process'` — but
+  that `Record` only has keys for `'main-process'`/`'extra-process'`, so the lookup silently
+  resolved to `undefined` instead of the `'main-process'` bucket an internal worker thread actually
+  needs (`rabbitmq/provider/mod.ts`, `rabbitmq/provider/setup.ts`). Fixed via the new
+  `resolveSubscribersMetadataKey()` (`@zanix/asyncmq/worker`), which explicitly aliases
+  `'internal-process'` to `'main-process'`'s bucket, matching the same correspondence
+  `cleanupSubscribersMetadata` already assumed on its cleanup side.
+
+### Added
+
+- **`WorkerExecution` type** (`@zanix/asyncmq/worker`):
+  `'main-process' | 'extra-process' |
+  'internal-process'` — the actual, detected runtime role of
+  the current process/thread, as opposed to the narrower, user-configured `Execution`
+  (`'main-process' | 'extra-process'`, the `@Subscriber`/`QueueConfig` `execution` option).
+  `resolveWorkerExecution()` now returns this wider, accurate type instead of the narrower
+  `Execution` it previously (incorrectly) claimed.
+- **`resolveSubscribersMetadataKey(execution: WorkerExecution)`** (`@zanix/asyncmq/worker`):
+  resolves the `SUBSCRIBERS_METADATA_KEY` bucket for a given `WorkerExecution` value, aliasing
+  `'internal-process'` to `'main-process'`'s bucket — see the Fixed entry above.
+- **The conditional `@Connector`/`@Provider` DSL registration functions are now exported, not just
+  auto-run as a private module-level side effect**: `registerRabbitMQConnector` (`rabbitmq/defs.ts`,
+  registers both the `'asyncmq'` connector and provider) and `registerWorkerProvider`
+  (`worker/defs.ts`) — both reachable via `@zanix/asyncmq/core`. Each still runs automatically once,
+  at import time, exactly as before; the new export lets a caller re-register after clearing the
+  relevant registry (`ProgramModule.targets.resetContainer(['type:connector', 'type:provider'])`,
+  `@zanix/server`) without needing a fresh module evaluation — for a config-reload in a long-running
+  process, or a test simulating a different env state between cases. Same pattern adopted across
+  `@zanix/datamaster`, `@zanix/auth`, `@zanix/notifications`, and `@zanix/app` in the same batch of
+  work.
 
 ## [0.6.0] - 2026-08-17
 
@@ -18,7 +56,7 @@ adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
   `DLQProvider.claim()`, runs the registered handler, and marks it `complete`/`fail`. `schedule`/
   `isActive` are `registerCronJob`'s own real `CronJobDefinitionBase` fields (`Pick`ed directly, not
   a separate loosely-typed contract). See [Dead Letter Queue Reprocessing](docs/dlq-reprocessing.md)
-  for the full reference, and `@zanix/datamaster`'s `docs/DLQ.md` for
+  for the full reference, and `@zanix/datamaster`'s `docs/dlq.md` for
   `DLQProvider`/`registerDLQModel` themselves.
 
 ### Fixed

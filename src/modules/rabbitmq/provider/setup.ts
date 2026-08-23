@@ -1,6 +1,6 @@
 import type { ZanixCacheProvider, ZanixKVConnector } from '@zanix/server'
 import type { ZanixRabbitMQConnector } from '../connector.ts'
-import type { Execution, SubscriberMetadata } from 'typings/queues.ts'
+import type { SubscriberMetadata, WorkerExecution } from 'typings/queues.ts'
 import type { Options } from 'amqp'
 
 import { getStoragedQueueOptions, storageQueueOptions } from 'utils/queues.ts'
@@ -11,8 +11,8 @@ import {
   GLOBAL_EXCHANGE,
   QUEUE_PRIORITY,
   SCHEDULER_EXCHANGE,
-  SUBSCRIBERS_METADATA_KEY,
 } from 'utils/constants.ts'
+import { resolveSubscribersMetadataKey } from 'modules/worker/mod.ts'
 import { readConfig } from '@zanix/helpers'
 import logger from '@zanix/logger'
 
@@ -26,11 +26,11 @@ let cachedProject: string | undefined
  */
 export const project = (): string => cachedProject ??= readConfig().name || ''
 
-export const deadletterOpts = {
+export const DEADLETTER_OPTS = {
   messageTtl: 30 * 24 * 60 * 60 * 1000, // expire in 30 days
   durable: true,
 }
-export const schedulerOpts = {
+export const SCHEDULER_OPTS = {
   durable: true,
   deadLetterExchange: SCHEDULER_EXCHANGE,
 }
@@ -77,7 +77,7 @@ const checkQueue = async (
  */
 export async function setup(
   options: {
-    execution: Execution
+    execution: WorkerExecution
     connector: ZanixRabbitMQConnector
     subscribers?: SubscriberMetadata[]
     crons?: CronRegistry[]
@@ -88,7 +88,7 @@ export async function setup(
 ) {
   const { subscribers, crons, execution, kvLocal, cache, connector, secret } = options
 
-  const subscriberKey = SUBSCRIBERS_METADATA_KEY[execution]
+  const subscriberKey = resolveSubscribersMetadataKey(execution)
   // Namespaced by `project`: `SUBSCRIBERS_METADATA_KEY` is a fixed, package-wide constant, and the
   // `cache`/`kvLocal` backend it's stored under (Redis, when `REDIS_URI` is set — see
   // `utils/queues.ts`) is commonly shared across multiple deployed services. Without this prefix,
@@ -203,13 +203,13 @@ export async function setup(
 
     // Bind deadletter
     const dlq = dlqPath(fullQueuePath)
-    await setupChannel.assertQueue(dlq, deadletterOpts)
+    await setupChannel.assertQueue(dlq, DEADLETTER_OPTS)
     await setupChannel.bindQueue(dlq, DEADLETTER_EXCHANGE, fullQueuePath)
 
     // Bind scheduler
     const schq = schqPath(fullQueuePath)
     await setupChannel.assertQueue(schq, {
-      ...schedulerOpts,
+      ...SCHEDULER_OPTS,
       deadLetterRoutingKey: fullQueuePath,
     })
     await setupChannel.bindQueue(schq, SCHEDULER_EXCHANGE, schq)
@@ -222,7 +222,7 @@ export async function setup(
     // Bind cron
     const cronq = schqPath(cronqPath(fullQueuePath))
     await setupChannel.assertQueue(cronq, {
-      ...schedulerOpts,
+      ...SCHEDULER_OPTS,
       deadLetterRoutingKey: fullQueuePath,
     })
     await setupChannel.bindQueue(cronq, SCHEDULER_EXCHANGE, cronq)

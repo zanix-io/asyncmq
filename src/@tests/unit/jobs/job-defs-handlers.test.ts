@@ -2,7 +2,7 @@
 import { assert, assertEquals } from '@std/assert'
 import { prepareContext } from 'utils/context.ts'
 import { getTask } from 'utils/tasks.ts'
-import { _Subscriber } from './job.defs.ts'
+import { _Subscriber } from '../../functional/jobs/job.defs.ts'
 
 const fakeContext = () => prepareContext(() => ({ id: '', cookies: {}, locals: {} } as any)) as any
 

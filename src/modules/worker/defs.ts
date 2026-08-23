@@ -18,7 +18,11 @@ import { ZanixCoreWorkerProvider } from './provider.ts'
  * actually imports — resolves correctly. See `@zanix/auth`'s `providers/core.ts` for the full
  * rationale.
  */
-const registerProvider = () => {
+// Exported (not just auto-run below) — kept consistent with every other `core.ts` loader's own
+// callable, re-invokable registration function across the Zanix ecosystem (see
+// `@zanix/datamaster`'s `storage/core.ts`'s own `registerSeaweedFSConnector` doc for the full
+// reasoning that pattern exists for).
+export const registerWorkerProvider = (): void => {
   Provider('worker')(ZanixCoreWorkerProvider)
 }
 
@@ -42,6 +46,6 @@ registerCoreProviderSlot('worker', ZanixWorkerProvider, {
  *
  * @module
  */
-const zanixWorkerProvider: void = registerProvider()
+const zanixWorkerProvider: void = registerWorkerProvider()
 
 export default zanixWorkerProvider

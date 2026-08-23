@@ -337,6 +337,25 @@ Possible values:
 > This variable is **automatically managed by the system** and **is only for internal reference**.
 > It should **not be manually set**.
 
+### 8.1 Configured vs. Detected Execution
+
+These three values look similar but split into two different concepts, and it matters which one
+you're dealing with:
+
+- **`main-process` and `extra-process` are things YOU configure** — the `execution` option on a
+  `@Subscriber`'s `queue` or a job's `QueueConfig`. Pick one directly, same as any other setting.
+- **`internal-process` is never something you configure.** It's a fact the system detects about the
+  process it's currently running in — set automatically when your code is executing inside AsyncMQ's
+  own internal worker thread (the one that transparently backs `main-process`-configured local tasks
+  — see §1's `soft`/`moderate`/`intensive` internal queues above). There's no
+  `execution: 'internal-process'` option to set on a subscriber or job.
+
+An analogy: `main-process` is "I do the work myself, at my desk"; `extra-process` is "I send the
+work to a separate office, in its own building" (a standalone worker process, full isolation);
+`internal-process` is "I sent it to a separate room inside my OWN office" (an isolated thread, but
+still the same process) — nobody asks for that room by name, the system just uses it transparently
+when a local task needs to run in isolation.
+
 ---
 
 ## See also

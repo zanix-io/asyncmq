@@ -66,6 +66,10 @@ export abstract class ZanixSubscriber<
   /**
    * Event triggered when an error occurs on the AsyncMQ.
    * Should be overridden to handle errors with custom logic.
+   *
+   * The default implementation logs the error and returns: a `logger.warn` (non-persisted) while
+   * `info.requeued` is `true` (retries remain), and a `logger.error` (persisted) once retries are
+   * exhausted and the message is routed to the dead-letter queue.
    */
   protected onerror(
     // deno-lint-ignore no-explicit-any no-unused-vars
@@ -81,10 +85,22 @@ export abstract class ZanixSubscriber<
       attempt: info.attempt,
     }
 
-    logger.error(
-      `An error occurred in the queue subscriber for topic "${info.queue}"`,
-      error,
-      'noSave',
-    )
+    if (info.requeued) {
+      // A non-terminal retry attempt: the message still has retries left and will be
+      // requeued, so this is routine resilience flow, not an operator-actionable failure.
+      logger.warn(
+        `Retry ${info.attempt} for the queue subscriber on topic "${info.queue}" — message requeued, retries remaining`,
+        error,
+        'noSave',
+      )
+    } else {
+      // The terminal attempt: retries are exhausted and the message is being sent to the
+      // dead-letter queue — an operator needs to be able to find this without having watched
+      // the console at the exact moment it happened, so it must persist.
+      logger.error(
+        `Retries exhausted for the queue subscriber on topic "${info.queue}" after attempt ${info.attempt} — message sent to dead letters`,
+        error,
+      )
+    }
   }
 }

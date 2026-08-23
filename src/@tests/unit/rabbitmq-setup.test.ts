@@ -36,3 +36,29 @@ Deno.test(
     assertEquals(deletedKeys, [`${project()}:${bareKey}`])
   },
 )
+
+// Regression test for a real bug: `execution: 'internal-process'` (a genuine runtime value —
+// see `WorkerExecution`) used to resolve to `undefined` when indexed directly into
+// `SUBSCRIBERS_METADATA_KEY` (which only has `Execution`'s 2 keys), so `storageKey` fell through
+// to `undefined` and this early-return branch never called `kvLocal.delete` at all — silently
+// skipping cleanup instead of clearing the (correctly shared) `main-process` bucket.
+Deno.test(
+  "setup(): `execution: 'internal-process'` resolves the SAME subscribers-metadata bucket as `main-process` — an internal worker thread must find what `main-process`-configured subscribers registered, not an empty/undefined key",
+  async () => {
+    const deletedKeys: string[] = []
+    const kvLocal = { delete: (key: string) => deletedKeys.push(key) }
+    const cache = {}
+
+    await setup({
+      execution: 'internal-process',
+      connector: {} as any,
+      subscribers: undefined,
+      kvLocal: kvLocal as unknown as ZanixKVConnector,
+      cache: cache as unknown as ZanixCacheProvider,
+      secret: 'test-secret',
+    })
+
+    const bareKey = SUBSCRIBERS_METADATA_KEY['main-process']
+    assertEquals(deletedKeys, [`${project()}:${bareKey}`])
+  },
+)

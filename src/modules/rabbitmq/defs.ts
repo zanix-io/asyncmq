@@ -17,10 +17,10 @@ import {
   ZanixAsyncmqConnector,
   ZanixAsyncMQProvider,
 } from '@zanix/server'
+import { isInternalProcess } from 'modules/worker/mod.ts'
+import { AMQP_URI_ENV } from 'utils/constants.ts'
 
-const isInternal = Deno.env.get('ZANIX_WORKER_EXECUTION') === 'internal-process'
-
-const startMode = isInternal ? 'lazy' : 'postBoot'
+const startMode = isInternalProcess() ? 'lazy' : 'postBoot'
 
 // `@zanix/asyncmq` owns the `'asyncmq'` provider and connector slots — registered unconditionally
 // (unlike `registerConnector` below, which only installs a *concrete* implementation when
@@ -33,15 +33,24 @@ registerCoreProviderSlot('asyncmq', ZanixAsyncMQProvider, {
   sourcePackage: '@zanix/asyncmq/core',
 })
 
-/** Connector DSL definition */
-const registerConnector = () => {
-  if (!Deno.env.has('AMQP_URI')) return
+/**
+ * Connector + Provider DSL definition — exported (not just auto-run below) so a caller can
+ * re-register after clearing the `'type:connector'`/`'type:provider'` registries
+ * (`ProgramModule.targets.resetContainer(['type:connector', 'type:provider'])`, or
+ * `closeAllConnections()` for the connector half, both in `@zanix/server`), without needing a
+ * fresh module evaluation of this file. Re-reads `Deno.env` each call, so a config-reload in a
+ * long-running process — or a test simulating a different env state between cases — gets a
+ * genuinely current registration, not a stale decision baked in at first import. Same pattern
+ * `@zanix/datamaster`'s own `storage/core.ts` (`registerS3Connector`) already uses.
+ */
+export const registerRabbitMQConnector = (): void => {
+  if (!Deno.env.has(AMQP_URI_ENV)) return
 
   @Connector({ slot: 'asyncmq', startMode })
   class _ZanixRabbitMQConnector extends ZanixRabbitMQConnector {
     constructor(contextId?: string) {
       // deno-lint-ignore no-non-null-assertion
-      super({ contextId, uri: Deno.env.get('AMQP_URI')! })
+      super({ contextId, uri: Deno.env.get(AMQP_URI_ENV)! })
     }
   }
 
@@ -71,6 +80,6 @@ const registerConnector = () => {
  *
  * @module
  */
-const zanixRabbitMQCore: void = registerConnector()
+const zanixRabbitMQCore: void = registerRabbitMQConnector()
 
 export default zanixRabbitMQCore

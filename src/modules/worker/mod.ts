@@ -8,17 +8,23 @@
  * @module
  */
 
+import type { WorkerExecution } from 'typings/queues.ts'
+
 import {
   cleanupInitializationsMetadata,
   ProgramModule,
   targetInitializations,
   ZANIX_SERVER_MODULES,
 } from '@zanix/server'
-import { SUBSCRIBERS_METADATA_KEY, TASKER_URL_METADATA_KEY } from 'utils/constants.ts'
+import {
+  SUBSCRIBERS_METADATA_KEY,
+  TASKER_URL_METADATA_KEY,
+  ZANIX_WORKER_EXECUTION_ENV,
+} from 'utils/constants.ts'
 
 export { processor as baseProcessor } from './queues/base.ts'
 export type { ProcessorOptions } from 'typings/worker.ts'
-export type { FullProcessingQueue, ProcessingQueues } from 'typings/queues.ts'
+export type { FullProcessingQueue, ProcessingQueues, WorkerExecution } from 'typings/queues.ts'
 
 /**
  * Whether the current process is an internal worker thread
@@ -29,9 +35,46 @@ export type { FullProcessingQueue, ProcessingQueues } from 'typings/queues.ts'
  * {@link setTaskerUrl} runs (internal-process), both of which happen well after this module is
  * first imported, so reading it fresh on each call is what makes this reflect the real, current
  * mode instead of a stale value from import time.
+ *
+ * Exported so `@zanix/asyncmq/rabbitmq`'s `defs.ts` (`registerRabbitMQConnector`'s `startMode`
+ * decision) reads through this single function instead of re-comparing
+ * `ZANIX_WORKER_EXECUTION_ENV` against the literal `'internal-process'` a second time — the two
+ * used to drift out of sync in naming (though never in the actual value compared) before this.
  */
-const isInternalProcess = (): boolean =>
-  Deno.env.get('ZANIX_WORKER_EXECUTION') === 'internal-process'
+export const isInternalProcess = (): boolean =>
+  Deno.env.get(ZANIX_WORKER_EXECUTION_ENV) === 'internal-process'
+
+/**
+ * Resolves the raw `ZANIX_WORKER_EXECUTION` value, defaulting to `'main-process'` when unset —
+ * what `ZanixCoreAsyncMQProvider` (`rabbitmq/provider/mod.ts`) needs (the actual detected mode,
+ * not just whether it's the internal one — see {@link WorkerExecution}, which genuinely includes
+ * `'internal-process'`, unlike the narrower, user-configured {@link Execution}). Exported so that
+ * call site reads through this single function instead of its own
+ * `Deno.env.get(...) as WorkerExecution || 'main-process'` cast.
+ *
+ * A `WorkerExecution` value read from here should never index {@link SUBSCRIBERS_METADATA_KEY}
+ * directly — that `Record` only has {@link Execution}'s 2 keys. Use
+ * {@link resolveSubscribersMetadataKey} for that lookup instead.
+ */
+export const resolveWorkerExecution = (): WorkerExecution =>
+  (Deno.env.get(ZANIX_WORKER_EXECUTION_ENV) as WorkerExecution) || 'main-process'
+
+/**
+ * Resolves the {@link SUBSCRIBERS_METADATA_KEY} bucket for a given {@link WorkerExecution} value.
+ * `'internal-process'` resolves to the SAME bucket as `'main-process'` — an internal worker thread
+ * is where `'main-process'`-configured subscribers actually execute (see {@link WorkerExecution}'s
+ * own doc), so it must read/write the same metadata `'main-process'` itself would, not a separate,
+ * nonexistent one. This mirrors {@link cleanupSubscribersMetadata}'s own existing `isInternal`
+ * handling, which already treats the two as sharing one bucket.
+ *
+ * Indexing `SUBSCRIBERS_METADATA_KEY` directly with a `WorkerExecution` value instead of going
+ * through this function silently returns `undefined` for `'internal-process'`, since that `Record`
+ * only has {@link Execution}'s 2 keys — any provider running inside an internal worker thread
+ * would silently fail to resolve its subscriber metadata. Always resolve through this function
+ * rather than indexing the `Record` directly.
+ */
+export const resolveSubscribersMetadataKey = (execution: WorkerExecution): string =>
+  SUBSCRIBERS_METADATA_KEY[execution === 'internal-process' ? 'main-process' : execution]
 
 /**
  * The project-file types that should be scanned for the current process type: excludes
@@ -54,7 +97,7 @@ export const workerFileTypes = (): typeof ZANIX_SERVER_MODULES =>
  * calling this is enough to declare that role.
  */
 export function registerInternalProcess(): void {
-  Deno.env.set('ZANIX_WORKER_EXECUTION', 'internal-process')
+  Deno.env.set(ZANIX_WORKER_EXECUTION_ENV, 'internal-process')
 }
 
 /**
@@ -131,7 +174,7 @@ export function setTaskerUrl(url: string): void {
  * for the rest of the process bootstrap.
  */
 export async function registerExtraProcessQueues(): Promise<void> {
-  Deno.env.set('ZANIX_WORKER_EXECUTION', 'extra-process')
+  Deno.env.set(ZANIX_WORKER_EXECUTION_ENV, 'extra-process')
 
   await import('./queues/intensive.ts')
   await import('./queues/moderate.ts')
@@ -141,7 +184,9 @@ export async function registerExtraProcessQueues(): Promise<void> {
 /**
  * Clears subscriber metadata that's no longer needed once subscribers have finished registering —
  * always clears the main-process key; additionally clears the extra-process key when running
- * inside an internal worker thread (`isInternal`), since that thread never needs it.
+ * inside an internal worker thread (`isInternal`), since that thread never needs it. Same
+ * main-process/internal-process correspondence {@link resolveSubscribersMetadataKey} formalizes
+ * for lookups — this function is its cleanup-side counterpart.
  *
  * @param isInternal - Whether the current process is an internal worker thread — see
  * {@link isInternalProcess}.

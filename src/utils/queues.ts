@@ -1,6 +1,6 @@
 import type { ZanixCacheProvider, ZanixKVConnector } from '@zanix/server'
 
-import { CACHE_KEYS } from './constants.ts'
+import { CACHE_KEYS, REDIS_URI_ENV } from './constants.ts'
 import logger from '@zanix/logger'
 
 export async function storageQueueOptions<T>(
@@ -9,7 +9,7 @@ export async function storageQueueOptions<T>(
   storage: { cache: ZanixCacheProvider; kvLocal: ZanixKVConnector },
 ) {
   const { kvLocal, cache } = storage
-  if (Deno.env.has('REDIS_URI')) {
+  if (Deno.env.has(REDIS_URI_ENV)) {
     await cache.redis.set(key, data)
   } else {
     logger.warn(
@@ -26,7 +26,7 @@ export function getStoragedQueueOptions<T>(
   storage: { cache: ZanixCacheProvider; kvLocal: ZanixKVConnector },
 ): T | Promise<T> {
   const { kvLocal, cache } = storage
-  return Deno.env.has('REDIS_URI')
+  return Deno.env.has(REDIS_URI_ENV)
     ? cache.redis.get<T>(key).then((resp) => resp || {} as T)
     : kvLocal.get<T>(key) || {} as T
 }
@@ -42,7 +42,7 @@ export async function lockMessage(
 
   if (isRunning) return false
 
-  const useRedis = Deno.env.has('REDIS_URI')
+  const useRedis = Deno.env.has(REDIS_URI_ENV)
   if (useRedis) isRunning = await cache.redis.has(key)
 
   if (isRunning) return false
@@ -59,7 +59,7 @@ export async function unlockMessage(
 ) {
   const key = `${CACHE_KEYS.job}:${msgId}`
 
-  const useRedis = Deno.env.has('REDIS_URI')
+  const useRedis = Deno.env.has(REDIS_URI_ENV)
   cache.local.delete(key)
   if (useRedis) await cache.redis.delete(key)
 }

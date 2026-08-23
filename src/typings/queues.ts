@@ -175,13 +175,33 @@ export type QueueOptions =
   }
 
 /**
- * Determines a the job is executed.
+ * Determines how a queue/subscriber is *configured* to run — a choice a consumer makes directly
+ * (`@Subscriber`'s `queue.execution`, `QueueConfig.execution`). Deliberately only 2 values: this is
+ * never a place `'internal-process'` belongs, since that mode is never something a consumer
+ * configures — see {@link WorkerExecution} for the wider, runtime-detected concept.
  *
  * - 'main-process': Runs in the main application process (default).
  * - 'extra-process': Reserved for external worker processes, such as AMQP-based workers,
  *   typically used for distributed or asynchronous job execution.
  */
 export type Execution = 'main-process' | 'extra-process'
+
+/**
+ * The actual, detected runtime role of the CURRENT process/thread — as opposed to {@link Execution},
+ * which is how a subscriber/queue is *configured* to run. Resolved via `resolveWorkerExecution()`
+ * (`@zanix/asyncmq/worker`), never set directly by a consumer:
+ *
+ * - `'main-process'`: runs directly alongside the app, no isolation — the default when nothing else
+ *   marked this process/thread otherwise.
+ * - `'extra-process'`: runs in a separate, standalone OS process — full isolation, started via
+ *   `registerExtraProcessQueues()`.
+ * - `'internal-process'`: runs inside AsyncMQ's own internal worker thread — isolated from the main
+ *   thread, but still part of the same OS process (the transparent isolation a `'main-process'`-
+ *   configured task actually gets when dispatched through `ZanixCoreWorkerProvider.runTask`'s local
+ *   fallback). Set only by `registerInternalProcess()`; never something a consumer configures via
+ *   {@link Execution} — a subscriber/queue can't be declared `execution: 'internal-process'`.
+ */
+export type WorkerExecution = Execution | 'internal-process'
 
 /**
  * Defines the configuration for a job queue.

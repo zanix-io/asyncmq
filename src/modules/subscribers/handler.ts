@@ -1,9 +1,9 @@
 import type {
   ErrorInfo,
-  Execution,
   IZanixSubscriber,
   MessageInfo,
   QueueOptions,
+  WorkerExecution,
 } from 'typings/queues.ts'
 import type { CronRegistry } from 'typings/crons.ts'
 import type { Channel, ConsumeMessage } from 'amqp'
@@ -55,7 +55,9 @@ export const processorHandler = (
   channel: Channel,
   { queue, secret, cache, crons = [], retries = {} }: {
     crons?: CronRegistry[]
-    execution?: Execution
+    /** Accepted for the caller's own bookkeeping (`setup.ts` forwards `resolveWorkerExecution()`'s
+     * value); not currently read by this function itself. */
+    execution?: WorkerExecution
     cache: ZanixCacheProvider
     queue: string
     retries?: QueueOptions['retryConfig']

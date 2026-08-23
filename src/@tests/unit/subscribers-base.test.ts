@@ -104,26 +104,53 @@ Deno.test('ZanixSubscriber: wraps a failed RTO validation as an ApplicationError
   assertEquals((caught as ApplicationError).message, 'Data validation Error')
 })
 
-Deno.test('ZanixSubscriber#onerror: attaches meta to the error and logs it', () => {
+@Subscriber('unit-test-onerror-route')
+class _DefaultErrorSubscriber extends ZanixSubscriber {
+  public onmessage(_message: any, _info: MessageInfo) {}
+}
+
+Deno.test('ZanixSubscriber#onerror: a non-terminal retry logs at warn level', () => {
+  const warnLogs = stub(console, 'warn')
   const errorLogs = stub(console, 'error')
   try {
-    @Subscriber('unit-test-onerror-route')
-    class _DefaultErrorSubscriber extends ZanixSubscriber {
-      public onmessage(_message: any, _info: MessageInfo) {}
-    }
-
     const context = fakeContext()
     const subscriber = new _DefaultErrorSubscriber(context)
     const error = new Error('boom')
-    const info: ErrorInfo = { ...fakeInfo(context), requeued: true }
+    const info: ErrorInfo = { ...fakeInfo(context), attempt: 1, requeued: true }
     ;(subscriber as any).onerror({ message: 'hello' }, error, info)
 
     assertEquals((error as any).meta.requeued, true)
+    assertEquals(errorLogs.calls.length, 0)
+    assertEquals(warnLogs.calls.length, 1)
     assertEquals(
-      errorLogs.calls[0].args[1],
-      'An error occurred in the queue subscriber for topic "unit-test-queue"',
+      warnLogs.calls[0].args[1],
+      'Retry 1 for the queue subscriber on topic "unit-test-queue" — message requeued, retries remaining',
     )
   } finally {
+    warnLogs.restore()
+    errorLogs.restore()
+  }
+})
+
+Deno.test('ZanixSubscriber#onerror: the terminal attempt logs at error level', () => {
+  const warnLogs = stub(console, 'warn')
+  const errorLogs = stub(console, 'error')
+  try {
+    const context = fakeContext()
+    const subscriber = new _DefaultErrorSubscriber(context)
+    const error = new Error('boom')
+    const info: ErrorInfo = { ...fakeInfo(context), attempt: 3, requeued: false }
+    ;(subscriber as any).onerror({ message: 'hello' }, error, info)
+
+    assertEquals((error as any).meta.requeued, false)
+    assertEquals(warnLogs.calls.length, 0)
+    assertEquals(errorLogs.calls.length, 1)
+    assertEquals(
+      errorLogs.calls[0].args[1],
+      'Retries exhausted for the queue subscriber on topic "unit-test-queue" after attempt 3 — message sent to dead letters',
+    )
+  } finally {
+    warnLogs.restore()
     errorLogs.restore()
   }
 })

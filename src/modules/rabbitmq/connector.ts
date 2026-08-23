@@ -25,8 +25,10 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
     const { uri, ...opts } = options
     super(opts)
     this.#uri = uri
-    const targetName = this.constructor.name
-    this.name = targetName.startsWith('_Zanix') ? 'asyncmq core' : targetName
+    // `coreDisplayName` (`ZanixConnector`, `@zanix/server`) strips the internal `_Zanix`-prefixed
+    // synthetic subclass name a core connector is auto-registered under, falling back to
+    // 'asyncmq core' — a no-op for any ordinary, consumer-authored subclass.
+    this.name = this.coreDisplayName('asyncmq core')
   }
 
   /**

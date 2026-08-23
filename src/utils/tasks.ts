@@ -29,6 +29,7 @@ export const getTask = <A extends MessageQueue, T>(
   if (task) return task
 
   throw new InternalError(`Tasker not found on queue "${queue}"`, {
+    code: 'ASYNCMQ_WORKER_TASK_NOT_FOUND',
     meta: { taskId, source: 'zanix', method: 'WorkerTaskerRegistry' },
   })
 }

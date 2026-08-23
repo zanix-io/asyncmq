@@ -243,7 +243,7 @@ registerDLQProcessor('payment.process', {
 
 See **[Dead Letter Queue Reprocessing](./docs/dlq-reprocessing.md)** for the full reference (what
 happens on every tick, `DLQProcessorOptions`, testing without a live broker) and
-`@zanix/datamaster`'s `docs/DLQ.md` for `DLQProvider`'s own lifecycle, `registerDLQModel`, and
+`@zanix/datamaster`'s `docs/dlq.md` for `DLQProvider`'s own lifecycle, `registerDLQModel`, and
 payload protection.
 
 ---
@@ -335,6 +335,13 @@ That means:
 - No need for manual provider configuration
 - Works across microservices and workers instantly
 
+`@zanix/asyncmq/core` also exports the two functions behind that auto-registration —
+`registerRabbitMQConnector` (connector + provider) and `registerWorkerProvider` (worker provider) —
+each still running automatically once at import time, exactly as above. The export exists for the
+rare case of re-registering after clearing the relevant registry (a config reload in a long-running
+process, or a test simulating a different env state between cases); most apps never need to call
+these directly.
+
 ---
 
 ## 📚 Documentation
@@ -348,7 +355,7 @@ Full reference guides live under [`docs/`](./docs):
   internal-process/extra-process entrypoints).
 - **[Dead Letter Queue Reprocessing](./docs/dlq-reprocessing.md)** — `registerDLQProcessor`
   (`@zanix/asyncmq/dlq`), `DLQProcessorOptions`, testing without a live broker. See also
-  `@zanix/datamaster`'s `docs/DLQ.md` for `DLQProvider`'s own lifecycle, `registerDLQModel`, and
+  `@zanix/datamaster`'s `docs/dlq.md` for `DLQProvider`'s own lifecycle, `registerDLQModel`, and
   payload protection.
 
 ---

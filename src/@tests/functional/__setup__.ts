@@ -15,6 +15,27 @@ import { dirname, join } from '@std/path'
 console.info = () => {}
 console.warn = () => {}
 
+/**
+ * Wraps a fire-and-forget provider call (`enqueue`/`sendMessage`/`schedule`/`requeueDeadLetters`,
+ * called from a `setTimeout` without `await`) so a benign teardown-time race doesn't crash the
+ * whole test module. This file's tests share one long-lived RabbitMQ connection/channel set across
+ * every `Deno.test` in the module, closed only implicitly when the process exits — a channel
+ * operation still in flight at that exact moment gets its pending RPC rejected with
+ * `amqplib`'s own `'Channel ended, no reply will be forthcoming'`, which nothing here awaits or
+ * catches otherwise. Only that specific, known-benign message is swallowed; any other rejection is
+ * a real bug and is left to surface as an unhandled rejection, same as if this wrapper weren't
+ * here — each test's own `calls`/`errors` assertions (via `registerQueue`) are still the real
+ * correctness check either way, this only prevents a harmless race from failing the whole module.
+ */
+export function fireAndForget(promise: Promise<unknown>): void {
+  promise.catch((error) => {
+    if (error instanceof Error && error.message === 'Channel ended, no reply will be forthcoming') {
+      return
+    }
+    throw error
+  })
+}
+
 const dependencies = async () => {
   Deno.env.set('AMQP_URI', 'amqp://guest:guest@localhost:5672/')
 

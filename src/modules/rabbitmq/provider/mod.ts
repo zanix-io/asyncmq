@@ -79,14 +79,26 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     this.#execution = resolveWorkerExecution()
     this.#connector = this.use<ZanixRabbitMQConnector>(false)
     const crons = this.registry.get<CronRegistry[]>(CRONS_METADATA_KEY)
-    this.#isConfigured = new Promise((resolve) =>
-      queueMicrotask(() =>
-        this.#setup(crons).then(() => {
-          resolve(true)
-        })
-      )
-    )
-    queueMicrotask(() => this.#executeCrons(crons))
+    this.#isConfigured = new Promise((resolve, reject) => {
+      queueMicrotask(() => {
+        this.#setup(crons).then(resolve, reject)
+      })
+    })
+    // Every public method (`enqueue`/`sendMessage`/`schedule`/`requeueDeadLetters`) awaits
+    // `#isConfigured` and so observes a real rejection from `#setup()` at its own call site — but
+    // an instance whose own methods are never called afterward (or a rejection that lands before
+    // any caller starts awaiting it) would otherwise leave this rejection with no handler at all,
+    // crashing the process. Attaching a no-op handler here doesn't change what a real awaiter
+    // above sees — it only marks this specific promise as handled for the unhandled-rejection
+    // check, same guarantee a `try`/`catch` around every call site would give, without requiring
+    // one.
+    this.#isConfigured.catch(() => {})
+
+    queueMicrotask(() => {
+      this.#executeCrons(crons).catch((error) => {
+        logger.error('Failed to execute scheduled cron jobs', error, 'noSave')
+      })
+    })
   }
 
   /**

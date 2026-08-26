@@ -1,6 +1,6 @@
 import { assertAlmostEquals, assertEquals, assertRejects } from '@std/assert'
 import { stub } from '@std/testing/mock'
-import { registerProvider, registerQueue } from './__setup__.ts'
+import { fireAndForget, registerProvider, registerQueue } from './__setup__.ts'
 import { ApplicationError } from '@zanix/errors'
 
 Deno.test({
@@ -11,10 +11,10 @@ Deno.test({
     const queue = 'test-queue'
     const provider = await registerProvider()
     setTimeout(() => {
-      provider.enqueue(queue, { message: 'hello queue' }, {
+      fireAndForget(provider.enqueue(queue, { message: 'hello queue' }, {
         isInternal: true,
         contextId: '',
-      })
+      }))
     }, 100)
 
     await registerQueue(queue)
@@ -30,11 +30,11 @@ Deno.test({
     const provider = await registerProvider()
     const message = { message: 'hello queue' }
     setTimeout(() => {
-      provider.sendMessage('', message, { contextId: '', isInternal: true }) // all internal queues
-      provider.sendMessage(queue, message, { contextId: '', isInternal: true }) // internal specific queue
-      provider.sendMessage('*', message, { contextId: '' }) // all queues
-      provider.sendMessage(`*.${queue}`, message, { contextId: '' }) // all specific queues
-      provider.sendMessage(`none.${queue}`, message, { contextId: '' })
+      fireAndForget(provider.sendMessage('', message, { contextId: '', isInternal: true })) // all internal queues
+      fireAndForget(provider.sendMessage(queue, message, { contextId: '', isInternal: true })) // internal specific queue
+      fireAndForget(provider.sendMessage('*', message, { contextId: '' })) // all queues
+      fireAndForget(provider.sendMessage(`*.${queue}`, message, { contextId: '' })) // all specific queues
+      fireAndForget(provider.sendMessage(`none.${queue}`, message, { contextId: '' }))
     }, 100)
 
     const { calls } = await registerQueue(queue, {
@@ -54,12 +54,12 @@ Deno.test({
 
     const start = Date.now()
     setTimeout(() => {
-      provider.schedule(queue, { message: 'hello queue' }, {
+      fireAndForget(provider.schedule(queue, { message: 'hello queue' }, {
         isInternal: true,
         contextId: '',
         messageId: Date.now().toString(),
         delay: 5000,
-      })
+      }))
     }, 100)
 
     await registerQueue(queue)
@@ -78,12 +78,12 @@ Deno.test({
 
     const start = Date.now()
     setTimeout(() => {
-      provider.schedule(queue, { message: 'hello queue' }, {
+      fireAndForget(provider.schedule(queue, { message: 'hello queue' }, {
         isInternal: true,
         contextId: '',
         messageId: Date.now().toString(),
         date: new Date(start + 5000),
-      })
+      }))
     }, 100)
 
     await registerQueue(queue)
@@ -100,14 +100,14 @@ Deno.test({
     const provider = await registerProvider()
 
     setTimeout(() => {
-      provider.enqueue(queue, { message: 'hello queue' }, {
+      fireAndForget(provider.enqueue(queue, { message: 'hello queue' }, {
         isInternal: true,
         contextId: '',
-      })
+      }))
     }, 100)
 
     setTimeout(() => {
-      provider.requeueDeadLetters(queue)
+      fireAndForget(provider.requeueDeadLetters(queue))
     }, 500)
 
     const { calls, errors } = await registerQueue(queue, {
@@ -133,14 +133,14 @@ Deno.test({
     const provider = await registerProvider()
 
     setTimeout(() => {
-      provider.enqueue(queue, { message: 'hello queue' }, {
+      fireAndForget(provider.enqueue(queue, { message: 'hello queue' }, {
         isInternal: true,
         contextId: '',
-      })
+      }))
     }, 100)
 
     setTimeout(() => {
-      provider.requeueDeadLetters(queue)
+      fireAndForget(provider.requeueDeadLetters(queue))
     }, 5000)
 
     const { calls, errors } = await registerQueue(queue, {
@@ -202,7 +202,11 @@ Deno.test({
     const queue = 'priority-reconfig-queue'
 
     // Round 1: create the queue with default options and let `setup()` finish and persist them.
-    registerQueue(queue)
+    // Deliberately not awaited — no message is ever sent in round 1, so `registerQueue()`'s own
+    // returned promise (which only settles once a delivered message resolves it) never resolves on
+    // its own; `fireAndForget` keeps a later rejection (e.g. once the shared connection eventually
+    // closes) from surfacing as an unhandled rejection instead of silently discarding the result.
+    fireAndForget(registerQueue(queue))
     await registerProvider()
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
@@ -213,10 +217,10 @@ Deno.test({
     const provider = await registerProvider()
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
-    provider.enqueue(queue, { message: 'hello queue' }, {
+    fireAndForget(provider.enqueue(queue, { message: 'hello queue' }, {
       isInternal: true,
       contextId: '',
-    })
+    }))
 
     const { calls } = await secondRound
     assertEquals(calls, 1)

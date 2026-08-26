@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-08-25
+
+### Added
+
+- **`./jobs` export subpath** — `registerJob`/`registerCronJob` and their supporting types
+  (`Job`/`BaseJob`/`JobDefinition`/`JobProcess`/`CronJobDefinition`/`CronJobDefinitionBase`/
+  `ProcessingQueues`), split out of the bare `.` entry point. This subpath's own reachable source
+  never imports `amqplib` (the RabbitMQ connector) nor `@zanix/database`/`@zanix/datamaster`
+  (`mongoose`/`redis`/`@aws-sdk/*`, the DLQ integration) — confirmed via an isolated
+  `deno check`/`node_modules` repro — so a consumer that only wants to declare jobs (e.g.
+  `@zanix/app`'s manifest-driven job registration) never pays for RabbitMQ or DLQ storage just by
+  importing this package.
+
+### Changed
+
+- **BREAKING**: `registerJob`/`registerCronJob` and their types (`Job`/`BaseJob`/`JobDefinition`/
+  `JobProcess`/`CronJobDefinition`/`CronJobDefinitionBase`) are no longer re-exported from the bare
+  `.` entry point — moved to `./jobs` (see above), not duplicated across both. Update any
+  `import { registerJob } from '@zanix/asyncmq'` (or `registerCronJob`) to
+  `import { registerJob } from '@zanix/asyncmq/jobs'`.
+
+### Fixed
+
+- **This package's own top-level `imports` map declared bare `@zanix/database`/
+  `@zanix/datamaster/core` unconditionally, even though both are test-only** — only
+  `src/@tests/functional/jobs/**` (`dlq.test.ts`, `worker-process.fixture.ts`, `__setup__.ts`)
+  imports them, to exercise DLQ reprocessing against a real Mongo-backed implementation. An unused
+  `jsr:`-backed alias sitting in a project's own top-level `imports` map is
+  `nodeModulesDir: "auto"`- materialized (`mongoose`/`redis`/`@aws-sdk/*`) regardless of
+  reachability, for every `deno check`/`deno test` run against this repo, even one that never
+  touches `./dlq`. Both now resolve only within a `scopes` entry restricted to `src/@tests/`.
+- **`dlq.defs.ts` (the `./dlq` subpath's own entry file) needs `@zanix/datamaster`'s own
+  `DlqProvider`/`DlqEntryAttrs` for real, unconditionally** — resolved through that package's own
+  genuinely narrow `./dlq` subpath (confirmed `redis`/`@redis/*`-free; it only reaches `mongoose`,
+  since the DLQ collection is Mongo-backed), a plain static import rather than anything gated behind
+  a runtime check. Kept as a permanent `@zanix/datamaster/dlq` entry in this package's own top-level
+  `imports` — currently a TEMP local link to that package's own unreleased checkout, since real JSR
+  only has `@zanix/datamaster` through `^1.0.0`, which has no `/dlq` export yet; moves to a real
+  `jsr:@zanix/datamaster@^1.0.0/dlq` specifier once that package publishes it. This was never
+  required for `./jobs`'s own isolation from `mongoose`/`redis`/`@aws-sdk/*` — confirmed that holds
+  independently of this fix.
+
 ## [0.7.0] - 2026-08-23
 
 ### Fixed

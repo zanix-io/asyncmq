@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-30
+
+### Added
+
+- **Automatic reconnection** in `ZanixRabbitMQConnector`. After an unexpected connection loss
+  (broker restart, network drop) it reconnects with exponential backoff and jitter, and
+  `ZanixCoreAsyncMQProvider` restores its publishing channel, queue topology and consumers, with no
+  process restart. Configured through the new `reconnect` option (`ReconnectOptions`: `enabled`,
+  `maxAttempts` = 10, `initialDelayMs` = 1000, `maxDelayMs` = 30000, `onExhausted`) or, for the
+  auto-registered connector, `AMQP_RECONNECT` and `AMQP_RECONNECT_MAX_ATTEMPTS`.
+- **Fail-fast**: when reconnection is disabled or `maxAttempts` is exhausted, `onExhausted` runs.
+  The default logs the failure and calls `Deno.exit(1)` so the orchestrator restarts the service.
+- `connector.onReconnect(callback)`, `connector.waitForConnection()` and
+  `connector.createConfirmChannel()`.
+
+### Fixed
+
+- A connection `error` event was unhandled; it is now logged.
+- Publishes (`enqueue`, `sendMessage`, `schedule`, `requeueDeadLetters`) now use a confirm channel
+  and wait for the broker's confirmation. If the channel is closed or the connection is being
+  re-established, they wait for recovery and retry once instead of failing or being lost. They now
+  resolve `true` on confirmation.
+- Subscriber ack/nack/requeue on a closed channel no longer throws out of the consumer callback (the
+  broker redelivers the message, and the dedup lock is released).
+- `consumeAllMessages` no longer hangs forever if its channel closes mid-way.
+
 ## [0.8.0] - 2026-08-25
 
 ### Added

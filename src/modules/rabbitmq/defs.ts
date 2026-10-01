@@ -18,7 +18,11 @@ import {
   ZanixAsyncMQProvider,
 } from '@zanix/server'
 import { isInternalProcess } from 'modules/worker/mod.ts'
-import { AMQP_URI_ENV } from 'utils/constants.ts'
+import {
+  AMQP_RECONNECT_ENV,
+  AMQP_RECONNECT_MAX_ATTEMPTS_ENV,
+  AMQP_URI_ENV,
+} from 'utils/constants.ts'
 
 const startMode = isInternalProcess() ? 'lazy' : 'postBoot'
 
@@ -49,8 +53,16 @@ export const registerRabbitMQConnector = (): void => {
   @Connector({ slot: 'asyncmq', startMode })
   class _ZanixRabbitMQConnector extends ZanixRabbitMQConnector {
     constructor(contextId?: string) {
-      // deno-lint-ignore no-non-null-assertion
-      super({ contextId, uri: Deno.env.get(AMQP_URI_ENV)! })
+      const maxAttempts = Number(Deno.env.get(AMQP_RECONNECT_MAX_ATTEMPTS_ENV))
+      super({
+        contextId,
+        // deno-lint-ignore no-non-null-assertion
+        uri: Deno.env.get(AMQP_URI_ENV)!,
+        reconnect: {
+          enabled: Deno.env.get(AMQP_RECONNECT_ENV) !== 'false',
+          ...(maxAttempts > 0 && { maxAttempts }),
+        },
+      })
     }
   }
 

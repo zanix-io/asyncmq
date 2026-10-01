@@ -261,3 +261,59 @@ Deno.test(
     assertEquals(channel.sendCalls.length, 1) // retried
   },
 )
+
+// ########################################################
+// # CLOSED CHANNEL (connection dropped mid-processing)
+// ########################################################
+
+const closedChannel = () => {
+  const channel = createMockChannel()
+  const closed = () => {
+    throw new Error('Channel closed')
+  }
+  channel.ack = closed
+  channel.nack = closed
+  return channel
+}
+
+const msgWith = async (headers: Record<string, any> = {}) =>
+  await createMsg({ hello: 'world' }, {
+    [MESSAGE_HEADERS.context]: await encode({ id: 'ctx', locals: {}, payload: {} }, 'secret'),
+    'x-attempt': 0,
+    ...headers,
+  })
+
+Deno.test('processorHandler: a failing ACK on a closed channel does not throw (broker redelivers)', async () => {
+  const handler = processorHandler(MockQueue, closedChannel(), {
+    queue: 'jobs',
+    secret: 'secret',
+    cache,
+  })
+  await handler(await msgWith() as any)
+})
+
+Deno.test('processorHandler: retry does not requeue a copy when the ACK of the original fails', async () => {
+  const channel = closedChannel()
+  const Queue = class extends MockQueue {
+    public override onmessage() {
+      throw new Error('fail')
+    }
+  }
+  const handler = processorHandler(Queue, channel, { queue: 'jobs', secret: 'secret', cache })
+  await handler(await msgWith({ [MESSAGE_HEADERS.maxRetries]: 3 }) as any)
+  assertEquals(channel.sendCalls.length, 0)
+})
+
+Deno.test('processorHandler: a failing NACK to the dead-letter queue does not throw', async () => {
+  const Queue = class extends MockQueue {
+    public override onmessage() {
+      throw new Error('fail')
+    }
+  }
+  const handler = processorHandler(Queue, closedChannel(), {
+    queue: 'jobs',
+    secret: 'secret',
+    cache,
+  })
+  await handler(await msgWith() as any)
+})

@@ -18,7 +18,7 @@
  */
 
 // Connector and providers
-export { ZanixRabbitMQConnector } from 'modules/rabbitmq/connector.ts'
+export { type ReconnectOptions, ZanixRabbitMQConnector } from 'modules/rabbitmq/connector.ts'
 export { ZanixCoreAsyncMQProvider } from 'modules/rabbitmq/provider/mod.ts'
 export { ZanixCoreWorkerProvider } from 'modules/worker/provider.ts'
 

@@ -44,6 +44,26 @@ const safeOnError = async (
 }
 
 /**
+ * Runs an ack/nack/publish on the consumer channel without letting a closed channel throw out of
+ * the amqplib callback. The connection can drop mid-processing; the broker then redelivers every
+ * unacknowledged message on its own, so a failed operation is logged, not retried here.
+ *
+ * @returns `true` when the operation ran, `false` when the channel was already closed.
+ */
+const channelOp = (op: () => unknown, action: string, queue: string): boolean => {
+  try {
+    op()
+    return true
+  } catch (e) {
+    logger.warn(`Could not ${action} on a closed channel for queue: ${queue}`, {
+      cause: e,
+      meta: { source: 'zanix', queue },
+    })
+    return false
+  }
+}
+
+/**
  * Creates a message processor for a specific subscriber and queue.
  *
  * This method returns a function responsible for handling messages from the
@@ -106,7 +126,7 @@ export const processorHandler = (
     if (cronIdentifier) {
       const cron = cronEntries[cronIdentifier]
       if (!cron?.isActive) {
-        channel.nack(msg, false, false)
+        channelOp(() => channel.nack(msg, false, false), 'nack', queue)
         await unlockMessage(messageId, cache)
         return
       }
@@ -126,25 +146,30 @@ export const processorHandler = (
       options.expiration = nextExecutionTime - now
 
       // lock publish
-      const canPublish = await lockMessage(
-        `publish:cron:${messageId}:${Math.floor(nextExecutionTime / 1000)}`,
-        cache,
-      )
+      const publishLock = `publish:cron:${messageId}:${Math.floor(nextExecutionTime / 1000)}`
+      const canPublish = await lockMessage(publishLock, cache)
 
       if (canPublish) {
-        channel.publish(
-          SCHEDULER_EXCHANGE,
-          schqPath(cronqPath(qPath(cron.queue))),
-          msg.content,
-          options,
+        const published = channelOp(
+          () =>
+            channel.publish(
+              SCHEDULER_EXCHANGE,
+              schqPath(cronqPath(qPath(cron.queue))),
+              msg.content,
+              options,
+            ),
+          'publish the next cron execution',
+          queue,
         )
+        // Free the lock so the redelivered message can schedule the next run.
+        if (!published) await unlockMessage(publishLock, cache)
       }
     }
 
     // Handler execution
     try {
       await subscriber.onmessage(messageContent, baseInfo)
-      channel.ack(msg)
+      channelOp(() => channel.ack(msg), 'ack', queue)
       await unlockMessage(messageId, cache)
     } catch (e) {
       const maxRetries = headers[MESSAGE_HEADERS.maxRetries] ??
@@ -162,18 +187,26 @@ export const processorHandler = (
           attempt: newAttempt,
         })
 
-        channel.ack(msg)
-        if (delay) {
-          channel.sendToQueue(schqPath(queue), msg.content, {
-            ...msg.properties,
-            expiration: delay,
-            headers: { ...headers, 'x-attempt': newAttempt },
-          })
-        } else {
-          channel.sendToQueue(queue, msg.content, {
-            ...msg.properties,
-            headers: { ...headers, 'x-attempt': newAttempt },
-          })
+        // If the ack fails the broker redelivers the message: requeueing it too would duplicate it.
+        if (channelOp(() => channel.ack(msg), 'ack', queue)) {
+          channelOp(
+            () => {
+              if (delay) {
+                channel.sendToQueue(schqPath(queue), msg.content, {
+                  ...msg.properties,
+                  expiration: delay,
+                  headers: { ...headers, 'x-attempt': newAttempt },
+                })
+              } else {
+                channel.sendToQueue(queue, msg.content, {
+                  ...msg.properties,
+                  headers: { ...headers, 'x-attempt': newAttempt },
+                })
+              }
+            },
+            'requeue the message',
+            queue,
+          )
         }
         await unlockMessage(messageId, cache)
       } else {
@@ -182,7 +215,7 @@ export const processorHandler = (
           ...baseInfo,
         })
         // Send to dead letters
-        channel.nack(msg, false, false)
+        channelOp(() => channel.nack(msg, false, false), 'nack', queue)
         await unlockMessage(messageId, cache)
       }
     }

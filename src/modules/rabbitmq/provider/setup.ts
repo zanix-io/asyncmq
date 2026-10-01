@@ -84,9 +84,14 @@ export async function setup(
     kvLocal: ZanixKVConnector
     cache: ZanixCacheProvider
     secret: string
+    /**
+     * Re-establishes the topology and consumers after a reconnection: skips queue migration,
+     * orphan-queue deletion and the stored-options update, which only belong to the first run.
+     */
+    recover?: boolean
   },
 ) {
-  const { subscribers, crons, execution, kvLocal, cache, connector, secret } = options
+  const { subscribers, crons, execution, kvLocal, cache, connector, secret, recover } = options
 
   const subscriberKey = resolveSubscribersMetadataKey(execution)
   // Namespaced by `project`: `SUBSCRIBERS_METADATA_KEY` is a fixed, package-wide constant, and the
@@ -107,13 +112,15 @@ export async function setup(
 
   const setupChannel = await connector.createChannel()
 
-  const storagedQueues = await getStoragedQueueOptions<Record<string, string>>(
-    storageKey,
-    {
-      cache,
-      kvLocal,
-    },
-  )
+  const storagedQueues = recover
+    ? {} as Record<string, string>
+    : await getStoragedQueueOptions<Record<string, string>>(
+      storageKey,
+      {
+        cache,
+        kvLocal,
+      },
+    )
   const queueOptions: typeof storagedQueues = {}
   //--------------------------
   // Create global exchanges
@@ -272,6 +279,11 @@ export async function setup(
         { noAck: false },
       )
     }))
+  }
+
+  if (recover) {
+    await setupChannel.close().catch(() => {})
+    return true
   }
 
   const extraProcessChannel = await connector.createChannel()

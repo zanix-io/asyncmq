@@ -1,7 +1,7 @@
 import type { SubscriberMetadata, WorkerExecution } from 'typings/queues.ts'
 import type { ZanixRabbitMQConnector } from '../connector.ts'
 import type { CronRegistry } from 'typings/crons.ts'
-import type { Channel } from 'amqp'
+import type { ConfirmChannel } from 'amqp'
 
 import {
   type MessageQueue,
@@ -61,7 +61,11 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   #connector: ZanixRabbitMQConnector
   #execution: WorkerExecution
   #isConfigured!: Promise<boolean>
-  #notifierChannel!: Channel
+  #notifierChannel!: ConfirmChannel
+  #notifierOpen = false
+  #notifierOpening?: Promise<void>
+  #subscribers?: SubscriberMetadata[]
+  #crons?: CronRegistry[]
   #secret: string
 
   /** Resolves the connector and secret, then kicks off async setup and cron execution. */
@@ -78,6 +82,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     this.#secret = configuredSecret || DEFAULT_AMQP_SECRET
     this.#execution = resolveWorkerExecution()
     this.#connector = this.use<ZanixRabbitMQConnector>(false)
+    this.#connector.onReconnect(() => this.#recover())
     const crons = this.registry.get<CronRegistry[]>(CRONS_METADATA_KEY)
     this.#isConfigured = new Promise((resolve, reject) => {
       queueMicrotask(() => {
@@ -116,11 +121,15 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
    * This method must complete before message publishing or consuming can occur.
    */
   async #setup(crons?: CronRegistry[]) {
-    this.#notifierChannel = await this.#connector.createChannel()
+    await this.#openNotifierChannel()
     const subsMetaKey = resolveSubscribersMetadataKey(this.#execution)
     const subscribers = this.registry.get<SubscriberMetadata[]>(
       subsMetaKey,
     )
+
+    // Kept for `#recover()`: the registry entry is removed below.
+    this.#subscribers = subscribers
+    this.#crons = crons
 
     await setup({
       execution: this.#execution,
@@ -136,6 +145,90 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     this.registry.delete(subsMetaKey)
 
     return true
+  }
+
+  /** Opens the publishing channel; its loss is tracked so a channel-level error self-heals. */
+  #openNotifierChannel(): Promise<void> {
+    // Single-flight: recovery and a waiting publisher may ask for it at the same time.
+    return this.#notifierOpening ??= this.#createNotifierChannel().finally(() => {
+      this.#notifierOpening = undefined
+    })
+  }
+
+  async #createNotifierChannel() {
+    const channel = await this.#connector.createConfirmChannel()
+    channel.on('error', (e: { code?: number }) => {
+      logger.error('Error occurred on the notifier channel', {
+        cause: e,
+        meta: { source: 'zanix', errorCode: e.code || 'UNKNOWN_ERROR' },
+      })
+    })
+    channel.on('close', () => {
+      if (this.#notifierChannel === channel) this.#notifierOpen = false
+    })
+    this.#notifierChannel = channel
+    this.#notifierOpen = true
+  }
+
+  /**
+   * Re-creates, after a reconnection, the state bound to the lost connection: the publishing
+   * channel, the queue topology and the consumers. Queue migration, orphan cleanup and cron
+   * rescheduling are first-run work and are not repeated (scheduled messages live in the broker).
+   * `#isConfigured` is swapped so publishers wait for it.
+   */
+  #recover(): Promise<void> {
+    const recovery = (async () => {
+      await this.#openNotifierChannel()
+      if (!this.#subscribers) return true
+      return await setup({
+        execution: this.#execution,
+        connector: this.#connector,
+        cache: this.cache,
+        kvLocal: this.kvLocal,
+        secret: this.#secret,
+        subscribers: this.#subscribers,
+        crons: this.#crons,
+        recover: true,
+      })
+    })()
+    this.#isConfigured = recovery.then(() => true)
+    recovery.catch(() => {})
+    return recovery.then(() => {})
+  }
+
+  /**
+   * Runs a publish on the notifier channel, resolving with the broker's confirmation. When the
+   * channel is closed or the connection is being re-established, waits for recovery and retries
+   * once, so a message sent during an outage is delivered instead of lost or thrown.
+   */
+  async #publish(
+    send: (
+      channel: ConfirmChannel,
+      cb: (err: unknown) => void,
+    ) => unknown,
+  ): Promise<boolean> {
+    const attempt = async () => {
+      await this.#isConfigured
+      if (!this.#notifierOpen) {
+        await this.#connector.waitForConnection()
+        await this.#openNotifierChannel()
+      }
+      await new Promise<void>((resolve, reject) => {
+        send(this.#notifierChannel, (err) => err ? reject(err) : resolve())
+      })
+      return true
+    }
+    try {
+      return await attempt()
+    } catch (error) {
+      logger.warn('Publish failed; retrying once after the connection is ready', {
+        cause: error,
+        meta: { source: 'zanix' },
+      })
+      await this.#connector.waitForConnection()
+      await this.#isConfigured
+      return await attempt()
+    }
   }
 
   /**
@@ -201,7 +294,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     const opts = await prepareOptions(options, this.#secret, this.getContext)
     const queuePath = isInternal ? qPath(queue) : queue
     const secureMessage = await encode(message, this.#secret)
-    return this.#notifierChannel.sendToQueue(queuePath, secureMessage, opts)
+    return this.#publish((ch, cb) => ch.sendToQueue(queuePath, secureMessage, opts, cb))
   }
 
   /**
@@ -230,12 +323,7 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     else if (isInternal) topic = qPath(topic)
 
     const secureMessage = await encode(message, this.#secret)
-    return this.#notifierChannel.publish(
-      GLOBAL_EXCHANGE,
-      topic,
-      secureMessage,
-      opts,
-    )
+    return this.#publish((ch, cb) => ch.publish(GLOBAL_EXCHANGE, topic, secureMessage, opts, cb))
   }
 
   /**
@@ -260,15 +348,13 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
       DEADLETTER_OPTS,
     )
 
-    return Promise.all(messages.map((message) => {
+    return Promise.all(messages.map(async (message) => {
       message.properties.headers = {
         ...message.properties.headers,
         [MESSAGE_HEADERS.rqFromDL]: true,
       }
-      this.#notifierChannel.sendToQueue(
-        queuePath,
-        message.content,
-        message.properties,
+      await this.#publish((ch, cb) =>
+        ch.sendToQueue(queuePath, message.content, message.properties, cb)
       )
       return decode(message.content, this.#secret)
     }))
@@ -325,11 +411,8 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
       )
     }
 
-    return this.#notifierChannel.publish(
-      SCHEDULER_EXCHANGE,
-      schqPath(queuePath),
-      secureMessage,
-      opts,
+    return this.#publish((ch, cb) =>
+      ch.publish(SCHEDULER_EXCHANGE, schqPath(queuePath), secureMessage, opts, cb)
     )
   }
 }

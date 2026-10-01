@@ -3,6 +3,12 @@ import type { Execution } from 'typings/queues.ts'
 /** Env var gating RabbitMQ's real connector/provider registration — see `rabbitmq/defs.ts`'s `registerRabbitMQConnector()`. Unset: the `'asyncmq'` core slot exists but has no concrete implementation. */
 export const AMQP_URI_ENV = 'AMQP_URI'
 
+/** Env var disabling in-process reconnection when set to `'false'` — a lost connection then exits the process immediately. See `ReconnectOptions`. */
+export const AMQP_RECONNECT_ENV = 'AMQP_RECONNECT'
+
+/** Env var overriding `ReconnectOptions.maxAttempts` (default `10`) for the auto-registered connector. */
+export const AMQP_RECONNECT_MAX_ATTEMPTS_ENV = 'AMQP_RECONNECT_MAX_ATTEMPTS'
+
 /** Env var naming the AES key `ZanixCoreAsyncMQProvider` encrypts message bodies with — see its own constructor. Unset: falls back to a hardcoded, publicly-known default key (logged as a warning). */
 export const DATA_AMQP_SECRET_ENV = 'DATA_AMQP_SECRET'
 

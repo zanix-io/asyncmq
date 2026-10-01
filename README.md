@@ -294,12 +294,22 @@ entrypoints with `initWorkerEntrypoint`).
 
 ## 🌐 Environment Variables
 
-| Variable           | Description                                         | Example                           |
-| ------------------ | --------------------------------------------------- | --------------------------------- |
-| `AMQP_URI`         | RabbitMQ or AMQP connection URI                     | `amqp://user:pass@localhost:5672` |
-| `DATA_AMQP_SECRET` | Secret key for encrypting/decrypting queue payloads | `my-32-byte-secret-key`           |
+| Variable                      | Description                                             | Example                           |
+| ----------------------------- | ------------------------------------------------------- | --------------------------------- |
+| `AMQP_URI`                    | RabbitMQ or AMQP connection URI                         | `amqp://user:pass@localhost:5672` |
+| `DATA_AMQP_SECRET`            | Secret key for encrypting/decrypting queue payloads     | `my-32-byte-secret-key`           |
+| `AMQP_RECONNECT`              | `false` disables reconnection (exit on connection loss) | `false`                           |
+| `AMQP_RECONNECT_MAX_ATTEMPTS` | Reconnection attempts before giving up (default `10`)   | `20`                              |
 
 When `AMQP_URI` is present, the default connector and provider are automatically registered.
+
+### Connection loss
+
+If the broker restarts or the connection drops, the connector reconnects with exponential backoff
+(1s doubling up to 30s) and the provider re-creates its channels and consumers. When the attempts
+are exhausted (or `AMQP_RECONNECT=false`) the process logs the failure and exits with code `1`, so
+the orchestrator restarts it. With a custom connector, pass `reconnect: { onExhausted }` to handle
+that case yourself. `connector.isHealthy()` is `false` while reconnecting.
 
 ---
 

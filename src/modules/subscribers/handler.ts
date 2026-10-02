@@ -64,6 +64,13 @@ const channelOp = (op: () => unknown, action: string, queue: string): boolean =>
 }
 
 /**
+ * How long a retry waits when it finds its own lock still held, before it is tried again. The lock
+ * is normally released before a retry is requeued, so this only covers a retry that meets the lock
+ * of a run that is genuinely still going.
+ */
+export const LOCKED_RETRY_DELAY_MS = 1000
+
+/**
  * Creates a message processor for a specific subscriber and queue.
  *
  * This method returns a function responsible for handling messages from the
@@ -98,11 +105,90 @@ export const processorHandler = (
 
   const cronEntries = Object.fromEntries(crons)
 
+  /**
+   * Publishes the next execution of a cron to its scheduler queue, unless another message already
+   * did (the publish lock is per cron and per execution time). Returns that next execution, or
+   * `null` when the schedule has none left.
+   */
+  const scheduleNextCron = async (
+    msg: ConsumeMessage,
+    messageId: string,
+    cron: CronRegistry[1],
+  ): Promise<Date | null> => {
+    const options = { ...msg.properties, ...cron.settings }
+
+    const nextExecution = await nextCronDate(cron.schedule)
+    if (!nextExecution) return null
+
+    const nextExecutionTime = nextExecution.getTime()
+    options.expiration = nextExecutionTime - Date.now()
+
+    // lock publish
+    const publishLock = `publish:cron:${messageId}:${Math.floor(nextExecutionTime / 1000)}`
+    const canPublish = await lockMessage(publishLock, cache)
+
+    if (canPublish) {
+      const published = channelOp(
+        () =>
+          channel.publish(
+            SCHEDULER_EXCHANGE,
+            schqPath(cronqPath(qPath(cron.queue))),
+            msg.content,
+            options,
+          ),
+        'publish the next cron execution',
+        queue,
+      )
+      // Free the lock so the redelivered message can schedule the next run.
+      if (!published) await unlockMessage(publishLock, cache)
+    }
+    return nextExecution
+  }
+
+  /**
+   * A message whose lock is already held: the same `messageId` is running, or is being requeued.
+   * The delivery must end either way — an unacknowledged message keeps its prefetch slot, and the
+   * default of one slot means the channel then receives nothing else — but without losing what
+   * still has to happen:
+   *
+   * - a **cron** execution that overlaps a run still going is skipped, yet the NEXT one is
+   *   scheduled; dropping it would end the chain, since each execution schedules the following;
+   * - a **retry** (`x-attempt` > 0) is requeued after a short delay, never dropped;
+   * - anything else is a duplicate of work already underway: acknowledged and discarded.
+   */
+  const handleLockedMessage = async (msg: ConsumeMessage, messageId: string) => {
+    const headers = msg.properties?.headers || {}
+
+    const cronIdentifier = headers[MESSAGE_HEADERS.cronIdentifier]
+    const cron = cronIdentifier && cronEntries[cronIdentifier]
+    if (cron?.isActive) {
+      await scheduleNextCron(msg, messageId, cron)
+      channelOp(() => channel.ack(msg), 'ack', queue)
+      return
+    }
+
+    const attempt = headers['x-attempt'] || 0
+    if (attempt > 0 && channelOp(() => channel.ack(msg), 'ack', queue)) {
+      channelOp(
+        () =>
+          channel.sendToQueue(schqPath(queue), msg.content, {
+            ...msg.properties,
+            expiration: LOCKED_RETRY_DELAY_MS,
+          }),
+        'requeue the locked retry',
+        queue,
+      )
+      return
+    }
+
+    if (attempt === 0) channelOp(() => channel.ack(msg), 'ack', queue)
+  }
+
   return async (msg: ConsumeMessage | null) => {
     if (!msg) return
     const messageId = msg.properties.messageId
     const canRun = await lockMessage(messageId, cache)
-    if (!canRun) return
+    if (!canRun) return await handleLockedMessage(msg, messageId)
 
     const headers = msg.properties?.headers || {}
     const [context, messageContent] = await Promise.all([
@@ -131,38 +217,17 @@ export const processorHandler = (
         return
       }
 
-      const options = { ...msg.properties, ...cron.settings }
-
-      const nextExecution = await nextCronDate(cron.schedule)
-      if (!nextExecution) return
+      const nextExecution = await scheduleNextCron(msg, messageId, cron)
+      if (!nextExecution) {
+        // Nothing left to schedule: end the delivery rather than leave it unacknowledged.
+        channelOp(() => channel.ack(msg), 'ack', queue)
+        await unlockMessage(messageId, cache)
+        return
+      }
       baseInfo.cron = {
         nextExecution,
         name: cronIdentifier,
         expression: cron.schedule,
-      }
-
-      const now = Date.now()
-      const nextExecutionTime = nextExecution.getTime()
-      options.expiration = nextExecutionTime - now
-
-      // lock publish
-      const publishLock = `publish:cron:${messageId}:${Math.floor(nextExecutionTime / 1000)}`
-      const canPublish = await lockMessage(publishLock, cache)
-
-      if (canPublish) {
-        const published = channelOp(
-          () =>
-            channel.publish(
-              SCHEDULER_EXCHANGE,
-              schqPath(cronqPath(qPath(cron.queue))),
-              msg.content,
-              options,
-            ),
-          'publish the next cron execution',
-          queue,
-        )
-        // Free the lock so the redelivered message can schedule the next run.
-        if (!published) await unlockMessage(publishLock, cache)
       }
     }
 
@@ -187,6 +252,10 @@ export const processorHandler = (
           attempt: newAttempt,
         })
 
+        // Released BEFORE the retry is published: the retry carries the same `messageId`, and
+        // releasing afterwards lets it reach the handler while the lock is still held.
+        await unlockMessage(messageId, cache)
+
         // If the ack fails the broker redelivers the message: requeueing it too would duplicate it.
         if (channelOp(() => channel.ack(msg), 'ack', queue)) {
           channelOp(
@@ -208,7 +277,6 @@ export const processorHandler = (
             queue,
           )
         }
-        await unlockMessage(messageId, cache)
       } else {
         await safeOnError(subscriber, messageContent, e, {
           requeued: false,

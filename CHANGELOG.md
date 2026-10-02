@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-10-01
+
+### Fixed
+
+- **A cron scheduled by the server before any worker had ever booted was lost, silently.** A server
+  whose crons run on a worker (`processingQueue: 'soft'`, ...) published into the scheduler exchange
+  without the binding that routes it — only the worker's `setup()` created it — and RabbitMQ drops
+  an unroutable message without an error. The cron never ran, on a first deploy, a fresh broker or
+  after the queues were deleted. The publisher now declares what it publishes to (the scheduler
+  exchange, the cron's scheduler queue and its binding, with the exact arguments `setup()` uses, so
+  declaring it from either side is idempotent). The same goes for a plain `schedule()`, whose
+  `.schq` queue used to exist only after a worker had booted.
+- **A cron whose link in the chain was lost is repaired by the worker.** Each execution schedules
+  the next one, so a lost message (e.g. it expired while no worker had declared the queue it
+  dead-letters to) ended the cron until the server's next boot. A worker now checks, after
+  `CRON_REPAIR_DELAY_MS` (10 s, so it never races a server booting alongside it), the crons it
+  processes and schedules the next execution of any with nothing pending. It never drains: it cannot
+  cancel what a server scheduled.
+- **A message whose lock was already held was left unacknowledged.** The consumer prefetches one
+  message by default, so it kept the only slot taken and the channel received nothing else. The
+  delivery now always ends, without losing work: a cron execution overlapping a run still going is
+  skipped but the NEXT one is still scheduled (before, the chain ended for good); a retry that meets
+  its own lock is requeued after `LOCKED_RETRY_DELAY_MS` (1 s); a plain duplicate is acknowledged
+  and discarded. A cron with no further execution to schedule is acknowledged and its lock released.
+- A retry released its lock only AFTER being requeued, so it could reach the handler while the lock
+  was still held. The lock is now released first.
+
+### Added
+
+- `enqueue()` and `schedule()` publish as `mandatory`, and the notifier channel logs every message
+  the broker returns (`"A message was returned by the broker: nothing is bound to receive it"`, with
+  the exchange and routing key). Before, a message for a queue that did not exist vanished without a
+  trace. It is a log, not an error for the publisher: nothing changes for existing callers.
+- `ensureSchedulerTopology` / `declareSchedulerQueue` (`rabbitmq/provider/setup.ts`), shared by
+  `setup()` and the publishers so the scheduler queues' arguments cannot drift apart.
+
 ## [0.9.0] - 2026-09-30
 
 ### Added

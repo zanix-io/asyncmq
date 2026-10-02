@@ -1,7 +1,7 @@
 import type { SubscriberMetadata, WorkerExecution } from 'typings/queues.ts'
 import type { ZanixRabbitMQConnector } from '../connector.ts'
 import type { CronRegistry } from 'typings/crons.ts'
-import type { ConfirmChannel } from 'amqp'
+import type { ConfirmChannel, Message } from 'amqp'
 
 import {
   type MessageQueue,
@@ -21,6 +21,7 @@ import {
   cronqPath,
   DEADLETTER_OPTS,
   dlqPath,
+  ensureSchedulerTopology,
   qPath,
   SCHEDULER_OPTS,
   schqPath,
@@ -30,7 +31,11 @@ import { decode, encode, prepareOptions } from './messages.ts'
 import { ApplicationError } from '@zanix/errors'
 import { generateUUID } from '@zanix/helpers'
 import { nextCronDate } from '@zanix/helpers'
+import { lockMessage } from 'utils/queues.ts'
 import logger from '@zanix/logger'
+
+/** What a channel's `'return'` event carries: the message plus where it was published. */
+type ReturnedMessage = Message
 
 /**
  * Fallback used when `DATA_AMQP_SECRET` isn't set — a real, deliberate fallback (message
@@ -40,6 +45,13 @@ import logger from '@zanix/logger'
  * below, which exists specifically to surface that whenever this fallback is actually in use.
  */
 const DEFAULT_AMQP_SECRET = 'zanix_default_secret'
+
+/**
+ * How long a freshly booted worker waits before checking its crons for a broken chain. A server
+ * that boots alongside it publishes its crons within moments; checking right away would see an
+ * empty queue and add a second chain next to the one the server is about to create.
+ */
+export const CRON_REPAIR_DELAY_MS = 10_000
 
 /**
  * ZanixAsyncMQProvider is a provider class responsible for managing
@@ -66,6 +78,8 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   #notifierOpening?: Promise<void>
   #subscribers?: SubscriberMetadata[]
   #crons?: CronRegistry[]
+  /** Scheduler queues this process already declared (queue and binding are durable). */
+  readonly #schedulerQueues = new Set<string>()
   #secret: string
 
   /** Resolves the connector and secret, then kicks off async setup and cron execution. */
@@ -163,6 +177,17 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
         meta: { source: 'zanix', errorCode: e.code || 'UNKNOWN_ERROR' },
       })
     })
+    // A `mandatory` publish that no queue could take comes back here (before its confirmation,
+    // which still arrives as an ack: RabbitMQ considers an unroutable message handled). Without
+    // this, such a message just vanishes.
+    channel.on('return', (returned: ReturnedMessage) => {
+      const { exchange, routingKey } = returned.fields
+      logger.error(
+        `A message was returned by the broker: nothing is bound to receive it ` +
+          `(exchange "${exchange || '(default)'}", routing key "${routingKey}")`,
+        { meta: { source: 'zanix', exchange, routingKey } },
+      )
+    })
     channel.on('close', () => {
       if (this.#notifierChannel === channel) this.#notifierOpen = false
     })
@@ -232,30 +257,114 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   }
 
   /**
-   * Execute crons
+   * Declares `schedulerQueue` and its binding from this side, once per process (see
+   * {@link ensureSchedulerTopology}). `deadLetterRoutingKey` is the queue that finally processes
+   * what expires in it.
+   */
+  async #ensureSchedulerQueue(schedulerQueue: string, deadLetterRoutingKey: string) {
+    if (this.#schedulerQueues.has(schedulerQueue)) return
+    const channel = await this.#connector.createChannel()
+    // A failed declaration (e.g. a `406` from a queue declared with other arguments) closes the
+    // channel and rejects; the caller decides what that means for its publish.
+    channel.on('error', () => {})
+    try {
+      await ensureSchedulerTopology(channel, schedulerQueue, deadLetterRoutingKey)
+    } finally {
+      await channel.close().catch(() => {})
+    }
+    this.#schedulerQueues.add(schedulerQueue)
+  }
+
+  /**
+   * Whether `queue` holds at least one message, i.e. a cron's next execution is already
+   * scheduled. Uses a throwaway channel: `checkQueue` on a missing queue closes its channel.
+   */
+  async #hasPendingMessages(queue: string): Promise<boolean> {
+    const channel = await this.#connector.createChannel()
+    channel.on('error', () => {})
+    try {
+      const { messageCount } = await channel.checkQueue(queue)
+      return messageCount > 0
+    } catch {
+      return false
+    } finally {
+      await channel.close().catch(() => {})
+    }
+  }
+
+  /**
+   * Schedules each cron's next execution.
+   *
+   * - A **server** (`main-process`) rewrites it on every boot: it drains whatever is pending and
+   *   publishes the next occurrence, so a changed `schedule`/`isActive` takes effect.
+   * - A **worker** (`extra-process`) only repairs it, after {@link CRON_REPAIR_DELAY_MS}: for the
+   *   crons whose queue it processes, if nothing is pending it schedules the next occurrence. The chain lives in the broker, and each
+   *   execution schedules the following one, so a broken link would otherwise stay broken until
+   *   the server's next boot — e.g. the message expired while no worker had declared the queue it
+   *   dead-letters to (the server booted long before the first worker), and RabbitMQ dropped it.
+   *   A worker never drains: it must not cancel what a server (or a previous worker) scheduled.
    */
   async #executeCrons(crons?: CronRegistry[]) {
     if (!crons) return
-    if (this.#execution === 'extra-process') {
+    const isWorker = this.#execution === 'extra-process'
+
+    if (isWorker) {
+      // Same as always for a worker: the registry entry goes right away. The repair itself runs
+      // later and must not hold the boot (nor the process) up.
       this.registry.delete(CRONS_METADATA_KEY)
+      const timer = setTimeout(() => {
+        this.#scheduleCrons(crons, true).catch((error) => {
+          logger.error('Failed to repair the scheduled cron jobs', error, 'noSave')
+        })
+      }, CRON_REPAIR_DELAY_MS)
+      Deno.unrefTimer(timer)
       return
     }
 
+    await this.#scheduleCrons(crons, false)
+
+    // remove unused data
+    this.registry.delete(CRONS_METADATA_KEY)
+  }
+
+  async #scheduleCrons(crons: CronRegistry[], isWorker: boolean) {
     await this.#isConfigured
     const cronExecutionPromises = crons.map(async ([cron, options]) => {
       const { queue, args, settings, schedule, isActive } = options
       const fullQueuePath = qPath(queue)
       const cronQueue = cronqPath(fullQueuePath)
       const schedulerQueue = schqPath(cronQueue)
-      // Process the cron scheduled messages to rewrite them.
-      await this.#connector.consumeAllMessages(schedulerQueue, {
-        ...SCHEDULER_OPTS,
-        deadLetterRoutingKey: fullQueuePath,
-      })
-      if (!isActive) return
+
+      if (isWorker) {
+        const processesQueue = this.#subscribers?.some(([name]) => name === queue)
+        if (!isActive || !processesQueue) return
+      }
+
+      // The worker's own `setup()` normally declares this, but this process may boot before any
+      // worker ever has (first deploy, fresh broker): without the binding the message published
+      // below has no route and RabbitMQ drops it silently.
+      await this.#ensureSchedulerQueue(schedulerQueue, fullQueuePath)
+
+      if (isWorker) {
+        if (await this.#hasPendingMessages(schedulerQueue)) return
+      } else {
+        // Process the cron scheduled messages to rewrite them.
+        await this.#connector.consumeAllMessages(schedulerQueue, {
+          ...SCHEDULER_OPTS,
+          deadLetterRoutingKey: fullQueuePath,
+        })
+        if (!isActive) return
+      }
 
       const nextDate = await nextCronDate(schedule)
       if (!nextDate) return
+
+      // The handler takes this same lock before it publishes a cron's next execution: whoever
+      // gets it first (with a shared cache, across processes too) is the only one that publishes.
+      if (isWorker) {
+        const publishLock = `publish:cron:${cron}:${Math.floor(nextDate.getTime() / 1000)}`
+        if (!await lockMessage(publishLock, this.cache)) return
+      }
 
       await this.schedule(cronQueue, args || null, {
         contextId: generateUUID(),
@@ -266,9 +375,6 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
       })
     })
     await Promise.all(cronExecutionPromises)
-
-    // remove unused data
-    this.registry.delete(CRONS_METADATA_KEY)
   }
 
   /**
@@ -294,7 +400,10 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
     const opts = await prepareOptions(options, this.#secret, this.getContext)
     const queuePath = isInternal ? qPath(queue) : queue
     const secureMessage = await encode(message, this.#secret)
-    return this.#publish((ch, cb) => ch.sendToQueue(queuePath, secureMessage, opts, cb))
+    // `mandatory`: a queue that does not exist (yet) returns the message instead of dropping it.
+    return this.#publish((ch, cb) =>
+      ch.sendToQueue(queuePath, secureMessage, { ...opts, mandatory: true }, cb)
+    )
   }
 
   /**
@@ -411,8 +520,17 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
       )
     }
 
+    // A plain scheduled message (not a cron: those declare their own queue above) goes through
+    // the same `.schq` queue, which only a process with subscribers used to declare.
+    await this.#ensureSchedulerQueue(schqPath(queuePath), queuePath)
     return this.#publish((ch, cb) =>
-      ch.publish(SCHEDULER_EXCHANGE, schqPath(queuePath), secureMessage, opts, cb)
+      ch.publish(
+        SCHEDULER_EXCHANGE,
+        schqPath(queuePath),
+        secureMessage,
+        { ...opts, mandatory: true },
+        cb,
+      )
     )
   }
 }

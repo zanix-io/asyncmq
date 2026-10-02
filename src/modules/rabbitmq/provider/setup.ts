@@ -1,7 +1,7 @@
 import type { ZanixCacheProvider, ZanixKVConnector } from '@zanix/server'
 import type { ZanixRabbitMQConnector } from '../connector.ts'
 import type { SubscriberMetadata, WorkerExecution } from 'typings/queues.ts'
-import type { Options } from 'amqp'
+import type { Channel, Options } from 'amqp'
 
 import { getStoragedQueueOptions, storageQueueOptions } from 'utils/queues.ts'
 import { processorHandler } from 'modules/subscribers/handler.ts'
@@ -38,6 +38,43 @@ export const dlqPath = (queue: string) => `${queue}.dlq` // deadletter queue
 export const schqPath = (queue: string) => `${queue}.schq` // scheduled queue
 export const cronqPath = (queue: string) => `${queue}.cron` // cron queue
 export const qPath = (queue: string) => queue ? `${project()}.${queue}` : project()
+
+/**
+ * Declares a scheduler queue (a `.schq` queue: where a scheduled message waits for its TTL) and
+ * binds it to the scheduler exchange under its own name — the one binding that makes a publish
+ * with that routing key routable. When the TTL expires the message dead-letters to
+ * `deadLetterRoutingKey`, the queue that finally processes it.
+ *
+ * The arguments are the ones `setup()` has always used, so declaring the same queue from either
+ * side is idempotent; a different set would make the next declaration fail with
+ * `406 PRECONDITION-FAILED`.
+ */
+export async function declareSchedulerQueue(
+  channel: Channel,
+  schedulerQueue: string,
+  deadLetterRoutingKey: string,
+): Promise<void> {
+  await channel.assertQueue(schedulerQueue, { ...SCHEDULER_OPTS, deadLetterRoutingKey })
+  await channel.bindQueue(schedulerQueue, SCHEDULER_EXCHANGE, schedulerQueue)
+}
+
+/**
+ * Everything a scheduled publish needs to be routable, declared from the PUBLISHING side: the
+ * scheduler exchange plus {@link declareSchedulerQueue}.
+ *
+ * `setup()` only runs for a process that has subscribers, so a process that merely schedules (a
+ * server whose crons run on a worker) never declared this. Publishing into the scheduler exchange
+ * without the binding is silent — RabbitMQ accepts the message and drops it — so a cron scheduled
+ * before any worker had ever booted was lost without a trace.
+ */
+export async function ensureSchedulerTopology(
+  channel: Channel,
+  schedulerQueue: string,
+  deadLetterRoutingKey: string,
+): Promise<void> {
+  await channel.assertExchange(SCHEDULER_EXCHANGE, 'direct', { durable: true })
+  await declareSchedulerQueue(channel, schedulerQueue, deadLetterRoutingKey)
+}
 
 const checkQueue = async (
   connector: ZanixRabbitMQConnector,
@@ -214,12 +251,7 @@ export async function setup(
     await setupChannel.bindQueue(dlq, DEADLETTER_EXCHANGE, fullQueuePath)
 
     // Bind scheduler
-    const schq = schqPath(fullQueuePath)
-    await setupChannel.assertQueue(schq, {
-      ...SCHEDULER_OPTS,
-      deadLetterRoutingKey: fullQueuePath,
-    })
-    await setupChannel.bindQueue(schq, SCHEDULER_EXCHANGE, schq)
+    await declareSchedulerQueue(setupChannel, schqPath(fullQueuePath), fullQueuePath)
     await setupChannel.bindQueue(
       fullQueuePath,
       SCHEDULER_EXCHANGE,
@@ -227,12 +259,7 @@ export async function setup(
     )
 
     // Bind cron
-    const cronq = schqPath(cronqPath(fullQueuePath))
-    await setupChannel.assertQueue(cronq, {
-      ...SCHEDULER_OPTS,
-      deadLetterRoutingKey: fullQueuePath,
-    })
-    await setupChannel.bindQueue(cronq, SCHEDULER_EXCHANGE, cronq)
+    await declareSchedulerQueue(setupChannel, schqPath(cronqPath(fullQueuePath)), fullQueuePath)
     await setupChannel.bindQueue(
       fullQueuePath,
       SCHEDULER_EXCHANGE,

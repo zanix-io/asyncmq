@@ -105,6 +105,24 @@ through the `soft`/`moderate`/`intensive` queues).
 
 A duplicate cron `name` throws `InternalError` at registration time.
 
+### Boot order: server and worker
+
+A cron is a chain of messages kept in RabbitMQ: the process that boots the project (the server)
+publishes the first execution with a TTL; when it expires it is dead-lettered to the queue that
+processes it (a worker's `soft`, `moderate`, ... queue), and each execution schedules the next one
+before it runs.
+
+- The server declares what it publishes to, so it does not matter whether it boots before or after
+  the first worker, or whether the broker is new.
+- If a link of the chain is lost, the worker repairs it: shortly after it boots (10 s), it schedules
+  the next execution of any cron it processes that has none pending. The server, on the other hand,
+  rewrites its crons on every boot.
+- A job slower than its cron's period skips the executions it overlaps and keeps going.
+- Deduplicating executions across **processes** (two workers, a server and a worker) relies on the
+  shared cache: configure `REDIS_URI`. With the local cache each process only dedupes its own.
+- A message published to a queue nobody has declared is not silently lost anymore: the broker
+  returns it and the provider logs `A message was returned by the broker`.
+
 ### Cron Execution Metadata
 
 When a message is executed by a cron job, the queue handler receives additional metadata in the

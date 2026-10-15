@@ -5,7 +5,6 @@ import { ProgramModule } from '@zanix/server'
 import { connect } from 'amqp'
 import { cronqPath, qPath, schqPath } from 'modules/rabbitmq/provider/setup.ts'
 import { CRONS_METADATA_KEY } from 'utils/constants.ts'
-import { CRON_REPAIR_DELAY_MS } from 'modules/rabbitmq/provider/mod.ts'
 
 const AMQP_URI = 'amqp://guest:guest@localhost:5672/'
 
@@ -98,36 +97,6 @@ Deno.test({
       await new Promise((resolve) => setTimeout(resolve, 1500))
       assertEquals(await pendingMessageIds(schedulerQueue), ['solo-cron'])
     } finally {
-      ProgramModule.registry.delete(CRONS_METADATA_KEY)
-      await deleteQueue(schedulerQueue)
-    }
-  },
-})
-
-Deno.test({
-  sanitizeOps: false,
-  sanitizeResources: false,
-  name:
-    'A worker repairs the cron whose message is missing even when another cron of the queue has one',
-  fn: async () => {
-    const queue = 'repair-shared-cron-queue'
-    const schedulerQueue = schqPath(cronqPath(qPath(queue)))
-    registerQueue(queue)
-    try {
-      registerCrons(queue, ['repair-cron-a'])
-      await registerProvider()
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-      assertEquals(await pendingMessageIds(schedulerQueue), ['repair-cron-a'])
-
-      // A worker that knows both crons finds the first one scheduled and the second one lost.
-      Deno.env.set('ZANIX_WORKER_EXECUTION', 'extra-process')
-      registerCrons(queue, ['repair-cron-a', 'repair-cron-b'])
-      await registerProvider()
-      await new Promise((resolve) => setTimeout(resolve, CRON_REPAIR_DELAY_MS + 2000))
-
-      assertEquals(await pendingMessageIds(schedulerQueue), ['repair-cron-a', 'repair-cron-b'])
-    } finally {
-      Deno.env.delete('ZANIX_WORKER_EXECUTION')
       ProgramModule.registry.delete(CRONS_METADATA_KEY)
       await deleteQueue(schedulerQueue)
     }

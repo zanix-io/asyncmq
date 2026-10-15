@@ -8,6 +8,18 @@ import { Probe, wait } from './__probe__.ts'
 
 const options = { sanitizeOps: false, sanitizeResources: false }
 
+/** Resolves when `check` holds, or rejects after `timeoutMs` naming what was awaited. */
+async function until(check: () => Promise<boolean>, timeoutMs: number, what: string) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    // deno-lint-ignore no-await-in-loop
+    if (await check()) return
+    // deno-lint-ignore no-await-in-loop
+    await wait(100)
+  }
+  throw new Error(`Timed out waiting for ${what}`)
+}
+
 Deno.test({
   ...options,
   name: 'schedule(): a plain scheduled message sent before any worker booted is kept, not dropped',
@@ -36,10 +48,13 @@ Deno.test({
     const probe = await Probe.create()
     try {
       await Promise.all([probe.spawn('server'), probe.spawn('server')])
-      await wait(1500)
-      assert(
-        (await probe.messageCount(probe.queue('.cron.schq'))) as number >= 1,
-        'the cron is waiting in its queue',
+      // The servers scheduled the cron: its scheduler queue exists. Its message is not what is
+      // looked at: it expires at the next tick (every 3 s) and, with no worker to dead-letter it
+      // to, is dropped, so whether it is still there depends on where the tick falls.
+      await until(
+        async () => (await probe.messageCount(probe.queue('.cron.schq'))) !== null,
+        10_000,
+        'the cron to be scheduled',
       )
 
       const worker = await probe.spawn('worker')

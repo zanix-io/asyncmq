@@ -23,3 +23,21 @@ registerCronJob({
     await Deno.stdout.write(new TextEncoder().encode(`PROBE_DONE ${Date.now()}\n`))
   },
 })
+
+/**
+ * A second cron on the same `soft` queue, registered only when `PROBE_SECOND_CRON` is set: crons that
+ * share a processing queue share its scheduler queue, and the tests of that sharing need two. It
+ * reports `PROBE_TOCK` so the first cron's `PROBE_RUN` count stays what the other tests read.
+ */
+if (Deno.env.get('PROBE_SECOND_CRON')) {
+  registerCronJob({
+    name: 'probe-tock',
+    isActive: true,
+    processingQueue: 'soft',
+    schedule: (Deno.env.get('PROBE_SCHEDULE') ||
+      '*/3 * * * * *') as `${string} ${string} ${string} ${string} ${string} ${string}`,
+    handler: async function () {
+      await Deno.stdout.write(new TextEncoder().encode(`PROBE_TOCK ${Date.now()}\n`))
+    },
+  })
+}

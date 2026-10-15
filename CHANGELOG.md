@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/) and this project
 adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-10-15
+
+### Fixed
+
+- **A server boot kept the schedule of only one of the crons that share a processing queue.** The
+  scheduler queue is shared by every cron of a processing queue (`soft`, `moderate`, ...), and each
+  cron, at the server's boot, drained the whole queue before publishing its own next execution, all
+  of them at once: a cron took the messages of the others (and a consumer that is handed a share of
+  what another is counting never finishes), so after a restart only some of the chains, often a
+  single one, were left, and the rest stopped silently. A cron now drains only its own message, and
+  the crons of one scheduler queue are rewritten one after the other.
+- **The worker's repair looked at the queue, not at the cron.** It scheduled a cron's next execution
+  only when the scheduler queue was empty, so a cron whose link was lost was never repaired while
+  any other cron of the same queue had its message. It now checks whether that cron has its own
+  message (`ZanixRabbitMQConnector.peekMessages`, which reads a queue without consuming anything).
+
 ## [0.9.1] - 2026-10-01
 
 ### Fixed

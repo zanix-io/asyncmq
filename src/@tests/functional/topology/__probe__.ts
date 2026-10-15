@@ -35,6 +35,8 @@ export type ProbeProcess = {
   lines: string[]
   /** How many `PROBE_RUN` lines (cron executions) have been printed. */
   runs(): number
+  /** How many lines starting with `prefix` have been printed (e.g. `PROBE_TOCK`, the second cron). */
+  count(prefix: string): number
   /** Resolves when `predicate` holds, or rejects after `timeoutMs` with the output so far. */
   until(predicate: () => boolean, timeoutMs: number, what: string): Promise<void>
   stop(): Promise<void>
@@ -114,6 +116,7 @@ async function createProbe() {
       const process: ProbeProcess = {
         lines,
         runs: () => lines.filter((line) => line.startsWith('PROBE_RUN')).length,
+        count: (prefix) => lines.filter((line) => line.startsWith(prefix)).length,
         async until(predicate, timeoutMs, what) {
           const deadline = Date.now() + timeoutMs
           while (Date.now() < deadline) {

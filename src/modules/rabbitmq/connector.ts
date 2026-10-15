@@ -5,6 +5,7 @@ import {
   type ConfirmChannel,
   connect,
   type ConsumeMessage,
+  type GetMessage,
   type Options,
 } from 'amqp'
 import logger from '@zanix/logger'
@@ -133,7 +134,10 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
    *
    * This method will fetch all messages that exist in the queue at the time
    * of calling. It acknowledges each message after consuming it. Note that
-   * messages arriving after this method starts may not be included.
+   * messages arriving after this method starts may not be included. With a `filter`, only the
+   * messages it accepts are acknowledged (and returned); the others go back to the queue when the
+   * channel closes. Two calls on the same queue at the same time take messages from each other, so
+   * a caller that reads a shared queue does it one call after another.
    *
    * @param {string} queue - The name of the queue to consume messages from.
    * @param {Options.AssertQueue & {channel?: Channel}} options - Options to assert the queue (durable, exclusive, etc.).
@@ -187,6 +191,36 @@ export class ZanixRabbitMQConnector extends ZanixAsyncmqConnector {
         }
       })
     })
+  }
+
+  /**
+   * The messages waiting in `queue` right now, read without consuming any: each one goes back to
+   * the queue. A queue that does not exist yet reads as empty.
+   *
+   * @param {string} queue - The full name of the queue.
+   * @returns {Promise<GetMessage[]>} The messages, with their properties.
+   */
+  public async peekMessages(queue: string): Promise<GetMessage[]> {
+    await this.waitForConnection()
+    // `checkQueue` on a missing queue closes its channel, so a throwaway one is used.
+    const channel = await this.createChannel()
+    channel.on('error', () => {})
+    const messages: GetMessage[] = []
+    try {
+      const { messageCount } = await channel.checkQueue(queue)
+      for (let index = 0; index < messageCount; index++) {
+        // deno-lint-ignore no-await-in-loop -- `get` answers one message at a time, in order
+        const message = await channel.get(queue, { noAck: false })
+        if (!message) break
+        messages.push(message)
+      }
+      if (messages.length) channel.nackAll(true)
+      return messages
+    } catch {
+      return []
+    } finally {
+      await channel.close().catch(() => {})
+    }
   }
 
   /** Opens the AMQP connection. Overridable seam so tests can inject a fake connection. */

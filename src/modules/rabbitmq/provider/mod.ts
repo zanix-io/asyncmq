@@ -46,6 +46,15 @@ type ReturnedMessage = Message
  */
 const DEFAULT_AMQP_SECRET = 'zanix_default_secret'
 
+/** Whether `message` is the scheduled execution of the cron named `cron`. */
+function isCronMessage(
+  message: { properties: { messageId?: string; headers?: Record<string, unknown> } },
+  cron: string,
+): boolean {
+  return message.properties.messageId === cron ||
+    message.properties.headers?.[MESSAGE_HEADERS.cronIdentifier] === cron
+}
+
 /**
  * How long a freshly booted worker waits before checking its crons for a broken chain. A server
  * that boots alongside it publishes its crons within moments; checking right away would see an
@@ -276,33 +285,30 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
   }
 
   /**
-   * Whether `queue` holds at least one message, i.e. a cron's next execution is already
-   * scheduled. Uses a throwaway channel: `checkQueue` on a missing queue closes its channel.
+   * Whether `queue` holds the next execution of `cron`, i.e. that cron's chain is intact. The
+   * scheduler queue is shared by every cron of a processing queue, so another cron's message says
+   * nothing about this one.
    */
-  async #hasPendingMessages(queue: string): Promise<boolean> {
-    const channel = await this.#connector.createChannel()
-    channel.on('error', () => {})
-    try {
-      const { messageCount } = await channel.checkQueue(queue)
-      return messageCount > 0
-    } catch {
-      return false
-    } finally {
-      await channel.close().catch(() => {})
-    }
+  async #hasCronMessage(queue: string, cron: string): Promise<boolean> {
+    const messages = await this.#connector.peekMessages(queue)
+    return messages.some((message) => isCronMessage(message, cron))
   }
 
   /**
    * Schedules each cron's next execution.
    *
-   * - A **server** (`main-process`) rewrites it on every boot: it drains whatever is pending and
-   *   publishes the next occurrence, so a changed `schedule`/`isActive` takes effect.
+   * - A **server** (`main-process`) rewrites it on every boot: it drains its own pending message
+   *   and publishes the next occurrence, so a changed `schedule`/`isActive` takes effect. The
+   *   scheduler queue is shared by every cron of a processing queue, so it only touches the
+   *   messages of the cron it is rewriting.
    * - A **worker** (`extra-process`) only repairs it, after {@link CRON_REPAIR_DELAY_MS}: for the
-   *   crons whose queue it processes, if nothing is pending it schedules the next occurrence. The chain lives in the broker, and each
-   *   execution schedules the following one, so a broken link would otherwise stay broken until
-   *   the server's next boot — e.g. the message expired while no worker had declared the queue it
-   *   dead-letters to (the server booted long before the first worker), and RabbitMQ dropped it.
-   *   A worker never drains: it must not cancel what a server (or a previous worker) scheduled.
+   *   crons whose queue it processes, if that cron has no message pending it schedules the next
+   *   occurrence. The chain lives in the broker, and each execution schedules the following one, so
+   *   a broken link would otherwise stay broken until the server's next boot — e.g. the message
+   *   expired while no worker had declared the queue it dead-letters to (the server booted long
+   *   before the first worker), and RabbitMQ dropped it. Another cron's message does not count as
+   *   this cron's. A worker never drains: it must not cancel what a server (or a previous worker)
+   *   scheduled.
    */
   async #executeCrons(crons?: CronRegistry[]) {
     if (!crons) return
@@ -329,7 +335,8 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
 
   async #scheduleCrons(crons: CronRegistry[], isWorker: boolean) {
     await this.#isConfigured
-    const cronExecutionPromises = crons.map(async ([cron, options]) => {
+
+    const scheduleCron = async ([cron, options]: CronRegistry) => {
       const { queue, args, settings, schedule, isActive } = options
       const fullQueuePath = qPath(queue)
       const cronQueue = cronqPath(fullQueuePath)
@@ -346,12 +353,14 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
       await this.#ensureSchedulerQueue(schedulerQueue, fullQueuePath)
 
       if (isWorker) {
-        if (await this.#hasPendingMessages(schedulerQueue)) return
+        if (await this.#hasCronMessage(schedulerQueue, cron)) return
       } else {
-        // Process the cron scheduled messages to rewrite them.
+        // Process this cron's scheduled message to rewrite it. Only its own: the queue is shared
+        // by every cron of the processing queue, and the others' messages stay where they are.
         await this.#connector.consumeAllMessages(schedulerQueue, {
           ...SCHEDULER_OPTS,
           deadLetterRoutingKey: fullQueuePath,
+          filter: (message) => isCronMessage(message, cron),
         })
         if (!isActive) return
       }
@@ -373,8 +382,23 @@ export class ZanixCoreAsyncMQProvider extends ZanixAsyncMQProvider {
         messageId: cron,
         headers: { [MESSAGE_HEADERS.cronIdentifier]: cron },
       })
-    })
-    await Promise.all(cronExecutionPromises)
+    }
+
+    // The crons of one scheduler queue go one after the other: each reads the queue and rewrites
+    // its own message, and two doing it at once take one another's messages (a consumer gets some
+    // of what the other is counting, and a message published meanwhile is read as an old one).
+    // Different queues do not touch each other and go at the same time.
+    const bySchedulerQueue = new Map<string, CronRegistry[]>()
+    for (const entry of crons) {
+      const schedulerQueue = schqPath(cronqPath(qPath(entry[1].queue)))
+      bySchedulerQueue.set(schedulerQueue, [...(bySchedulerQueue.get(schedulerQueue) ?? []), entry])
+    }
+    await Promise.all(
+      [...bySchedulerQueue.values()].map(async (group) => {
+        // deno-lint-ignore no-await-in-loop -- one cron after the other, see above
+        for (const entry of group) await scheduleCron(entry)
+      }),
+    )
   }
 
   /**

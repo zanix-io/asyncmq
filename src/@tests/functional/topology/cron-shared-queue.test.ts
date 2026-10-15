@@ -10,11 +10,33 @@ import { Probe, wait } from './__probe__.ts'
 const options = { sanitizeOps: false, sanitizeResources: false }
 const TWO_CRONS = { PROBE_SECOND_CRON: '1' }
 
-/** The scheduled executions in `queue`, once the server has had time to schedule them (it does so
- * right after it announces it is ready) and to rewrite them after a restart. */
-async function scheduledAfterBoot(probe: Awaited<ReturnType<typeof Probe.create>>) {
-  await wait(3000)
-  return await probe.messageCount(probe.queue('.cron.schq'))
+/**
+ * The number of scheduled executions in the cron queue once it holds `expected` and still does a
+ * moment later. A server writes them right after it announces it is ready, one cron after the
+ * other, and a message being rewritten is not counted while it is in flight, so a count taken too
+ * early reads less. Resolves with the last count read when the time runs out.
+ */
+async function scheduledExecutions(
+  probe: Awaited<ReturnType<typeof Probe.create>>,
+  expected: number,
+  timeoutMs = 30_000,
+): Promise<number | null> {
+  const deadline = Date.now() + timeoutMs
+  let count = await probe.messageCount(probe.queue('.cron.schq'))
+  while (Date.now() < deadline) {
+    if (count === expected) {
+      // deno-lint-ignore no-await-in-loop
+      await wait(1000)
+      // deno-lint-ignore no-await-in-loop
+      count = await probe.messageCount(probe.queue('.cron.schq'))
+      if (count === expected) return count
+    }
+    // deno-lint-ignore no-await-in-loop
+    await wait(250)
+    // deno-lint-ignore no-await-in-loop
+    count = await probe.messageCount(probe.queue('.cron.schq'))
+  }
+  return count
 }
 
 Deno.test({
@@ -26,12 +48,12 @@ Deno.test({
       // Every minute, so the executions stay scheduled while the test looks at the queue.
       const env = { ...TWO_CRONS, PROBE_SCHEDULE: '0 * * * * *' }
       const first = await probe.spawn('server', env)
-      assertEquals(await scheduledAfterBoot(probe), 2, 'after the first boot')
+      assertEquals(await scheduledExecutions(probe, 2), 2, 'after the first boot')
 
       // The restart: the server finds both executions scheduled and rewrites them.
       await first.stop()
       await probe.spawn('server', env)
-      assertEquals(await scheduledAfterBoot(probe), 2, 'after the restart')
+      assertEquals(await scheduledExecutions(probe, 2), 2, 'after the restart')
     } finally {
       await probe.cleanup()
     }
